@@ -1,0 +1,15 @@
+Summary:
+
+Wakelan is a program that makes waking up remote clients easier. 
+
+What Does it do?
+At its core, wakelan puts information about the computers on a LAN into a SQLite3 DB (i used a CSV file initally) 
+and then grabs the relevant entries when i need to start a computer up. entries can be manually entered, or they can 
+be imported as the results of various network scans. What i originally saw as a quick (ha!) bash script turned into 
+a massive project (for a bash script newb like me), and i've learned a few things along the way, as well as 
+indulging feature creep.
+
+Prerequsites
+wakeonlan
+nbtscan
+
