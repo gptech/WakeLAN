@@ -143,7 +143,7 @@ package_check()
 {  
     REQ_PKGS=("wakeonlan" "nbtscan" "sqlite3")
     UNMET_PKGS=()
-    OPT_PKGS=("nmap" "arp-scan" "arping")
+    OPT_PKGS=()
     UNMET_OPT_PKGS=()
 
     for PACKAGE in "${REQ_PKGS[@]}" ; do
