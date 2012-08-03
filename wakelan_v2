@@ -1,0 +1,185 @@
+#!/bin/bash
+#       wakelan- Wakes up computers on LAN.
+#       Copyright 2012 Lemar Carthens <lemar.carthens1@gmail.com>
+#       Version 2 - SQLite Support
+#       Resources from: http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
+#                       http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
+set -x 
+
+DB_FILE="wakelan.db"
+SQLITE="sqlite3"
+LAN=""
+SCAN_RESULTS="scan_data.csv"
+
+GRAB_IP='[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}'
+GRAB_MAC='[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}'
+GRAB_IP_MAC='[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}..[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}'
+
+config_settings()
+{
+    CONFIG_FILE=.wakelan.conf
+    if [[ -f $CONFIG_FILE ]]; then
+        . $CONFIG_FILE
+    else
+        echo "Configuration Missing! Abort"
+        exit 30
+    fi
+}
+
+do_scan_import() # uses nbtscan (Best Option so far)
+{
+    check_db # Starts first to see if database exists. In Short, this MUST START FIRST!!
+    make_tmp
+    local TIMESTAMP=$(date +%m%d%y_%H%M%S)
+    echo "Now scanning the $LAN Network. Please be patient."
+    nbtscan -s, $LAN 2>/dev/null |\
+    sed -e 's/ //g' | cut -f 1,2,5 -d, >> $TEMP_FILE1
+    
+    local counter=$(wc -l $TEMP_FILE1 | awk '{print $1}')
+    let counter=counter-1 # correct for array
+    ip_array=(`cat $TEMP_FILE1 | cut -f 1 -d,`)
+    host_array=(`cat $TEMP_FILE1 | cut -f 2 -d,`)
+    mac_array=(`cat $TEMP_FILE1 | cut -f 3 -d,`)
+    
+    read -p "Press [Enter] key to see entries to be imported. Press [q] to quit "
+    cat $TEMP_FILE1 | column -s, -t | less -#2 -S
+    echo -e "Import? [y/n]---> \c"
+    read selection
+    case $selection in
+        [yY] ) until [ $counter -eq -1 ]; do # Items in an array are counted from 0 instead of 1, so this corrects for it.
+                    echo "INSERT INTO client (IpAddress,Hostname,MacAddress) VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');" | $SQLITE $DB_FILE 
+                    let counter=counter-1
+               done;;
+        [nN] ) clean_up ; exit 0  ;;
+        * ) echo "Invalid Entry."
+    esac
+    clean_up
+}
+
+do_compare()
+{
+    $SQLITE $DB_FILE .dump > $DB_FILE.txt
+}
+
+graceful_exit()
+{
+	clean_up
+	exit
+}
+
+signal_exit()
+{
+	case $1 in
+		INT)	echo "$PROGNAME: Program aborted by user" >&2
+			clean_up
+			exit
+			;;
+		TERM)	echo "$PROGNAME: Program terminated" >&2
+			clean_up
+			exit
+			;;
+		*)	error_exit "$PROGNAME: Terminating on unknown signal"
+			;;
+	esac
+}
+
+clean_up()
+{
+	rm -f ${TEMP_FILE1}
+}
+
+error_exit()
+{
+	echo "${PROGNAME}: ${1:-"Unknown Error"}" >&2
+	clean_up
+	exit 1
+}
+
+make_tmp()
+{
+	if [ -d ~/tmp ]; then
+		TEMP_DIR=~/tmp
+	else
+		TEMP_DIR=/tmp
+	fi
+	TEMP_FILE1=$(mktemp -q "${TEMP_DIR}/${PROGNAME}.$$.XXXXXX")
+	if [ "$TEMP_FILE1" = "" ]; then
+		echo "cannot create temp file!"
+        exit 1
+	fi
+}
+
+check_db() 
+{
+    if [[ -f $DB_FILE ]]; then
+        sleep 0s
+    else
+        make_tmp
+        echo "Creating new Database: $DB_FILE"
+        local STRUCTURE="CREATE TABLE client (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
+        cat /dev/null > $DB_FILE                # Create the DB
+        echo $STRUCTURE > $TEMP_FILE1       # Write the structure to a temp file
+        $SQLITE $DB_FILE < $TEMP_FILE1    # Fill the DB with the structure
+        clean_up                                # Remove the Temp File
+    fi
+}
+
+search_db()
+{
+    # Create temp file to hold config and query
+    make_tmp
+    # copy config into temp file
+    config_settings
+    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE1
+    echo -e "Enter Search Term ---> \c"
+	read STRING
+    # Copy created query into temp file as well
+	echo "SELECT Hostname,IpAddress,MacAddress FROM clients WHERE Hostname LIKE '$STRING%';" >> $TEMP_FILE1
+    $SQLITE $DB_FILE < $TEMP_FILE1
+    clean_up
+}
+
+package_check() 
+{  
+    REQ_PKGS=("wakeonlan" "nbtscan" "sqlite3")
+    UNMET_PKGS=()
+    OPT_PKGS=("nmap" "arp-scan" "arping")
+    UNMET_OPT_PKGS=()
+
+    for PACKAGE in "${REQ_PKGS[@]}" ; do
+        command -v $PACKAGE 1>/dev/null
+        if [ $? = "0" ] ; then
+            sleep 0s
+        else
+            UNMET_PKGS=("${UNMET_PKGS[@]}" "$PACKAGE")
+        fi
+    done
+
+    for PACKAGE in "${OPT_PKGS[@]}" ; do
+        command -v $PACKAGE 1>/dev/null
+        if [ $? = "0" ] ; then
+            sleep 0s
+        else
+            UNMET_OPT_PKGS=("${UNMET_OPT_PKGS[@]}" "$PACKAGE")
+        fi
+    done
+
+    if [ "${#UNMET_OPT_PKGS[@]}" = "0" ] ; then
+        sleep 0s
+    else
+        for i in "${UNMET_OPT_PKGS[@]}" ; do 
+            echo "$i is missing. (Optional)"
+        done
+    fi
+
+    if [ "${#UNMET_PKGS[@]}" = "0" ] ; then
+        menu
+    else
+        for i in "${UNMET_PKGS[@]}" ; do 
+            echo "$i is missing. (Required)"
+        done
+        exit 32
+    fi
+}
+
+
