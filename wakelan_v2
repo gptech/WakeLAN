@@ -112,13 +112,10 @@ check_db()
     if [[ -f $DB_FILE ]]; then
         sleep 0s
     else
-        make_tmp
         echo "Creating new Database: $DB_FILE"
         local STRUCTURE="CREATE TABLE client (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
-        cat /dev/null > $DB_FILE                # Create the DB
-        echo $STRUCTURE > $TEMP_FILE1       # Write the structure to a temp file
-        $SQLITE $DB_FILE < $TEMP_FILE1    # Fill the DB with the structure
-        clean_up                                # Remove the Temp File
+        cat /dev/null > $DB_FILE             # Create the DB
+        $SQLITE $DB_FILE "$STRUCTURE"    # Fill the DB with the structure
     fi
 }
 
