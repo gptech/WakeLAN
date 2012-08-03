@@ -62,7 +62,15 @@ do_scan_import() # uses nbtscan (Best Option so far)
     echo "SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME 
     WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
     >> $TEMP_FILE1 
+    echo "Displaying records to be imported."
     $SQLITE $DB_FILE < $TEMP_FILE1
+    echo -e "Import? [y/n]---> \c"
+    read selection
+    case $selection in
+	# //WIP [yY] ) echo "INSERT into $TABLE_NAME (IpAddress,Hostname,MacAddress) SELECT IpAddress,Hostname,MacAddress from $SCANNED_TABLE_NAME;" \
+	| $SQLITE $DB_FILE ;;
+
+    
     clean_up
 }
 
