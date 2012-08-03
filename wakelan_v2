@@ -4,16 +4,17 @@
 #       Version 2 - SQLite Support
 #       Resources from: http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
 #                       http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
-set -x 
+#set -x 
 
 DB_FILE="wakelan.db"
 SQLITE="sqlite3"
-LAN=""
+LAN="172.17.10.0/24"
 SCAN_RESULTS="scan_data.csv"
 
 GRAB_IP='[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}'
 GRAB_MAC='[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}'
 GRAB_IP_MAC='[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}\.[[:digit:]]{1,3}..[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}\:[[:alnum:]]{2}'
+
 
 config_settings()
 {
@@ -21,8 +22,12 @@ config_settings()
     if [[ -f $CONFIG_FILE ]]; then
         . $CONFIG_FILE
     else
-        echo "Configuration Missing! Abort"
-        exit 30
+        echo "Configuration Missing!"
+	echo "Creating new config file"
+        echo 'HEADER_ENABLE=".headers on"' >> $CONFIG_FILE
+	echo 'TABLE_MODE=".mode column"' >> $CONFIG_FILE 
+	echo 'TABLE_WIDTH=".width 20, 20, 20"' >> $CONFIG_FILE
+	. $CONFIG_FILE
     fi
 }
 
@@ -31,31 +36,33 @@ do_scan_import() # uses nbtscan (Best Option so far)
     check_db # Starts first to see if database exists. In Short, this MUST START FIRST!!
     make_tmp
     local TIMESTAMP=$(date +%m%d%y_%H%M%S)
-    local STRUCTURE="CREATE TABLE client_$TIMESTAMP (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
+    TABLE_NAME="client"
+    SCANNED_TABLE_NAME="client_$TIMESTAMP"
+    local STRUCTURE="CREATE TABLE $SCANNED_TABLE_NAME (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
     echo "Now scanning the $LAN Network. Please be patient."
-    nbtscan -s, $LAN 2>/dev/null |\
-    sed -e 's/ //g' | cut -f 1,2,5 -d, >> $TEMP_FILE1
+    nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d, >> $TEMP_FILE1
     
     $SQLITE $DB_FILE "$STRUCTURE"
-    
-    local counter=$(wc -l $TEMP_FILE1 | awk '{print $1}')
-    let counter=counter-1 # correct for array
+    local counter=$(wc -l $TEMP_FILE1 | awk '{print $1-1}') #awk can do math, so the '-1' helps correct for the array
     ip_array=(`cat $TEMP_FILE1 | cut -f 1 -d,`)
     host_array=(`cat $TEMP_FILE1 | cut -f 2 -d,`)
     mac_array=(`cat $TEMP_FILE1 | cut -f 3 -d,`)
+    until [ $counter -eq -1 ]; do # Items in an array are counted from 0 instead of 1, so this corrects for it.
+	 echo "INSERT INTO $SCANNED_TABLE_NAME (IpAddress,Hostname,MacAddress) 
+	 VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');" \
+	 | $SQLITE $DB_FILE
+	let counter=counter-1
+    done
+    clean_up
     
-    read -p "Press [Enter] key to see entries to be imported. Press [q] to quit "
-    cat $TEMP_FILE1 | column -s, -t | less -#2 -S
-    echo -e "Import? [y/n]---> \c"
-    read selection
-    case $selection in
-        [yY] ) until [ $counter -eq -1 ]; do # Items in an array are counted from 0 instead of 1, so this corrects for it.
-                    echo "INSERT INTO client (IpAddress,Hostname,MacAddress) VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');" | $SQLITE $DB_FILE 
-                    let counter=counter-1
-               done;;
-        [nN] ) clean_up ; exit 0  ;;
-        * ) echo "Invalid Entry."
-    esac
+    make_tmp
+    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE1
+    #show what will be imported
+    $SQLITE $DB_FILE < $TEMP_FILE1
+    echo "SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME 
+    WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
+    >> $TEMP_FILE1 
+    $SQLITE $DB_FILE < $TEMP_FILE1
     clean_up
 }
 
@@ -67,44 +74,39 @@ graceful_exit()
 
 signal_exit()
 {
-	case $1 in
-		INT)	echo "$PROGNAME: Program aborted by user" >&2
-			clean_up
-			exit
-			;;
-		TERM)	echo "$PROGNAME: Program terminated" >&2
-			clean_up
-			exit
-			;;
-		*)	error_exit "$PROGNAME: Terminating on unknown signal"
-			;;
-	esac
+    case $1 in
+	INT)	echo "$PROGNAME: Program aborted by user" >&2
+		clean_up ; exit ;;
+	TERM)	echo "$PROGNAME: Program terminated" >&2
+		clean_up ; exit ;;
+	*)	error_exit "$PROGNAME: Terminating on unknown signal" ;;
+    esac
 }
 
 clean_up()
 {
-	rm -f ${TEMP_FILE1}
+    rm -f ${TEMP_FILE1}
 }
 
 error_exit()
 {
-	echo "${PROGNAME}: ${1:-"Unknown Error"}" >&2
-	clean_up
-	exit 1
+    echo "${PROGNAME}: ${1:-"Unknown Error"}" >&2
+    clean_up
+    exit 1
 }
 
 make_tmp()
 {
-	if [ -d ~/tmp ]; then
-		TEMP_DIR=~/tmp
-	else
-		TEMP_DIR=/tmp
-	fi
-	TEMP_FILE1=$(mktemp -q "${TEMP_DIR}/${PROGNAME}.$$.XXXXXX")
-	if [ "$TEMP_FILE1" = "" ]; then
-		echo "cannot create temp file!"
-        exit 1
-	fi
+    if [ -d ~/tmp ]; then
+	TEMP_DIR=~/tmp
+    else
+	TEMP_DIR=/tmp
+    fi
+    TEMP_FILE1=$(mktemp -q "${TEMP_DIR}/${PROGNAME}.$$.XXXXXX")
+    if [ "$TEMP_FILE1" = "" ]; then
+	echo "cannot create temp file!"
+    exit 1
+    fi
 }
 
 check_db() 
@@ -114,8 +116,8 @@ check_db()
     else
         echo "Creating new Database: $DB_FILE"
         local STRUCTURE="CREATE TABLE client (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
-        cat /dev/null > $DB_FILE             # Create the DB
-        $SQLITE $DB_FILE "$STRUCTURE"    # Fill the DB with the structure
+        cat /dev/null > $DB_FILE
+        $SQLITE $DB_FILE "$STRUCTURE"
     fi
 }
 
@@ -127,9 +129,9 @@ search_db()
     config_settings
     echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE1
     echo -e "Enter Search Term ---> \c"
-	read STRING
+    read STRING
     # Copy created query into temp file as well
-	echo "SELECT Hostname,IpAddress,MacAddress FROM clients WHERE Hostname LIKE '$STRING%';" >> $TEMP_FILE1
+    echo "SELECT Hostname,IpAddress,MacAddress FROM clients WHERE Hostname LIKE '$STRING%';" >> $TEMP_FILE1
     $SQLITE $DB_FILE < $TEMP_FILE1
     clean_up
 }
@@ -176,5 +178,18 @@ package_check()
         exit 32
     fi
 }
+
+# Results of the 'time' command on do_scan_import (on new db):
+# real	0m9.362s
+# user	0m0.028s
+# sys	0m0.088s
+
+# Results of the 'time' command on do_scan_import (on existing db):
+# real	0m8.471s
+# user	0m0.044s
+# sys	0m0.060s
+set -x
+config_settings
 do_scan_import
+
 
