@@ -31,9 +31,12 @@ do_scan_import() # uses nbtscan (Best Option so far)
     check_db # Starts first to see if database exists. In Short, this MUST START FIRST!!
     make_tmp
     local TIMESTAMP=$(date +%m%d%y_%H%M%S)
+    local STRUCTURE="CREATE TABLE client_$TIMESTAMP (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
     echo "Now scanning the $LAN Network. Please be patient."
     nbtscan -s, $LAN 2>/dev/null |\
     sed -e 's/ //g' | cut -f 1,2,5 -d, >> $TEMP_FILE1
+    
+    $SQLITE $DB_FILE "$STRUCTURE"
     
     local counter=$(wc -l $TEMP_FILE1 | awk '{print $1}')
     let counter=counter-1 # correct for array
@@ -54,11 +57,6 @@ do_scan_import() # uses nbtscan (Best Option so far)
         * ) echo "Invalid Entry."
     esac
     clean_up
-}
-
-do_compare()
-{
-    $SQLITE $DB_FILE .dump > $DB_FILE.txt
 }
 
 graceful_exit()
@@ -181,5 +179,5 @@ package_check()
         exit 32
     fi
 }
-
+do_scan_import
 
