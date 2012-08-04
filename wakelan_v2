@@ -11,20 +11,6 @@ CONFIG_FILE=".wakelan.conf"
 DB_FILE="wakelan.db"
 TABLE_NAME="client"
 
-config_settings()
-{
-    if [[ -f $CONFIG_FILE ]]; then
-        . $CONFIG_FILE
-    else
-        echo "Configuration Missing!"
-	echo "Creating new config file"
-        config_file >> $CONFIG_FILE
-	echo "Please open $CONFIG_FILE and add Network Info."
-	echo "then re-run"
-	exit
-    fi
-}
-
 config_file()
 {
     cat <<- _EOF_
@@ -43,17 +29,29 @@ TABLE_WIDTH=".width 20, 20, 20"
 _EOF_
 }
 
+config_settings()
+{
+    if [[ -f $CONFIG_FILE ]]; then
+        . $CONFIG_FILE
+    else
+        echo "Configuration Missing!"
+	echo "Creating new config file"
+        config_file >> $CONFIG_FILE
+	echo "Please open $CONFIG_FILE and add Network Info."
+	echo "then re-run"
+	exit
+    fi
+}
+
 do_scan_import() # uses nbtscan (Best Option so far)
 {
     check_db # Starts first to see if database exists. In Short, this MUST START FIRST!!
     make_tmp
     local TIMESTAMP=$(date +%m%d%y_%H%M%S)
-    
     SCANNED_TABLE_NAME="client_$TIMESTAMP"
     local STRUCTURE="CREATE TABLE $SCANNED_TABLE_NAME (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
     echo "Now scanning the $LAN Network. Please be patient."
     nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d, >> $TEMP_FILE1
-    
     $SQLITE $DB_FILE "$STRUCTURE"
     local counter=$(wc -l $TEMP_FILE1 | awk '{print $1-1}') #awk can do math, so the '-1' helps correct for the array
     ip_array=(`cat $TEMP_FILE1 | cut -f 1 -d,`)
@@ -68,9 +66,8 @@ do_scan_import() # uses nbtscan (Best Option so far)
     clean_up
     
     make_tmp
+    # Sets Display settings, and show what will be imported.
     echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE1
-    #show what will be imported
-    $SQLITE $DB_FILE < $TEMP_FILE1
     echo "SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME 
     WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
     >> $TEMP_FILE1 
