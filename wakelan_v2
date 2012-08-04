@@ -4,6 +4,8 @@
 #       Version 2 - SQLite Support
 #       Resources from: http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
 #                       http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
+PROGNAME=$(basename $0)
+VERSION="2.0"
 
 SQLITE="sqlite3"
 CONFIG_FILE=".wakelan.conf"
@@ -58,31 +60,30 @@ do_scan_import() # uses nbtscan (Best Option so far)
     host_array=(`cat $TEMP_FILE | cut -f 2 -d,`)
     mac_array=(`cat $TEMP_FILE | cut -f 3 -d,`)
     until [ $counter -eq -1 ]; do # Items in an array are counted from 0 instead of 1, so this corrects for it.
-	 echo "INSERT INTO $SCANNED_TABLE_NAME (IpAddress,Hostname,MacAddress) 
-	 VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');" \
-	 | $SQLITE $DB_FILE
-	let counter=counter-1
+        echo "INSERT INTO $SCANNED_TABLE_NAME (IpAddress,Hostname,MacAddress) VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');"\
+        | $SQLITE $DB_FILE
+        let counter=counter-1
     done
     clean_up
     
     make_tmp
     # Sets Display settings, and show what will be imported.
-    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE
-    echo "SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME 
-    WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
-    >> $TEMP_FILE 
+    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH"\
+     >> $TEMP_FILE
+    echo "SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
+     >> $TEMP_FILE 
     echo "Displaying records to be imported."
     $SQLITE $DB_FILE < $TEMP_FILE
     echo -e "Import? [y/n]---> \c"
     read selection
     case $selection in
-	[yY] )  echo "INSERT INTO $TABLE_NAME (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress from $SCANNED_TABLE_NAME WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);" \
-	        | $SQLITE $DB_FILE && echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"\
-	        | $SQLITE $DB_FILE ;;
-	[nN] )  echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"
-		exit ;;
-	*)	echo "Invalid entry. Abort" # Fix this up a bit
-		exit ;; 
+        [yY] )  echo "INSERT INTO $TABLE_NAME (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
+                | $SQLITE $DB_FILE && echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"\
+                | $SQLITE $DB_FILE ;;
+        [nN] ) echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"
+            =exit ;;
+        *)	   echo "Invalid entry. Abort" # Fix this up a bit
+            exit ;; 
     esac
     clean_up
 }
@@ -100,7 +101,8 @@ signal_exit()
 		clean_up ; exit ;;
 	TERM)	echo "$PROGNAME: Program terminated" >&2
 		clean_up ; exit ;;
-	*)	error_exit "$PROGNAME: Terminating on unknown signal" ;;
+	*)	error_exit "$PROGNAME: Terminating on unknown signal"
+        ;;
     esac
 }
 
@@ -136,7 +138,7 @@ check_db()
         sleep 0s
     else
         echo "Creating new Database: $DB_FILE"
-        local STRUCTURE="CREATE TABLE client (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
+        local STRUCTURE="CREATE TABLE $TABLE_NAME (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
         cat /dev/null > $DB_FILE
         $SQLITE $DB_FILE "$STRUCTURE"
     fi
@@ -147,13 +149,34 @@ search_db()
     # Create temp file to hold config and query
     make_tmp
     # copy config into temp file
-    config_settings
     echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE
     echo -e "Enter Search Term ---> \c"
     read STRING
     # Copy created query into temp file as well
-    echo "SELECT Hostname,IpAddress,MacAddress FROM clients WHERE Hostname LIKE '$STRING%';" >> $TEMP_FILE
+    echo "SELECT Hostname,IpAddress,MacAddress FROM\
+   $TABLE_NAME WHERE Hostname LIKE '$STRING%';"\
+    >> $TEMP_FILE
     $SQLITE $DB_FILE < $TEMP_FILE
+    clean_up
+}
+
+do_start_wakeup()
+{
+    make_tmp
+    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE
+    echo -e "Enter Name of PC to wakeup ---> \c"
+    read STRING
+    echo "SELECT Hostname,IpAddress,MacAddress FROM $TABLE_NAME WHERE Hostname='$STRING';" >> $TEMP_FILE
+    $SQLITE $DB_FILE < $TEMP_FILE
+    echo -e "Wakeup? [y/n] ---> \c"
+    read selection
+    local WAKEMAC="SELECT MacAddress FROM $TABLE_NAME WHERE Hostname='$STRING';"
+    local MAC_ADDR=$(echo $WAKEMAC | $SQLITE $DB_FILE)
+    case $selection in
+        [yY] ) wakeonlan $MAC_ADDR  ;;
+        [nN] ) echo "Exiting" ; exit ;;
+        * )    echo "invalid entry" ; exit ;;
+    esac
     clean_up
 }
 
@@ -212,5 +235,6 @@ package_check()
 set -x
 config_settings
 do_scan_import
-
+search_db
+do_start_wakeup
 
