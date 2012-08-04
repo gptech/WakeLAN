@@ -68,9 +68,9 @@ do_scan_import() # uses nbtscan (Best Option so far)
     read selection
     case $selection in
 	[yY] )  echo "INSERT INTO $TABLE_NAME (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress from $SCANNED_TABLE_NAME WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);" \
-	        | $SQLITE $DB_FILE && echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME"\
+	        | $SQLITE $DB_FILE && echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"\
 	        | $SQLITE $DB_FILE ;;
-	[nN] )  echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME"
+	[nN] )  echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"
 		exit ;;
 	*)	echo "Invalid entry. Abort" # Fix this up a bit
 		exit ;; 
