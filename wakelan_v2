@@ -51,12 +51,12 @@ do_scan_import() # uses nbtscan (Best Option so far)
     SCANNED_TABLE_NAME="client_$TIMESTAMP"
     local STRUCTURE="CREATE TABLE $SCANNED_TABLE_NAME (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
     echo "Now scanning the $LAN Network. Please be patient."
-    nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d, >> $TEMP_FILE1
+    nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d, >> $TEMP_FILE
     $SQLITE $DB_FILE "$STRUCTURE"
-    local counter=$(wc -l $TEMP_FILE1 | awk '{print $1-1}') #awk can do math, so the '-1' helps correct for the array
-    ip_array=(`cat $TEMP_FILE1 | cut -f 1 -d,`)
-    host_array=(`cat $TEMP_FILE1 | cut -f 2 -d,`)
-    mac_array=(`cat $TEMP_FILE1 | cut -f 3 -d,`)
+    local counter=$(wc -l $TEMP_FILE | awk '{print $1-1}') #awk can do math, so the '-1' helps correct for the array
+    ip_array=(`cat $TEMP_FILE | cut -f 1 -d,`)
+    host_array=(`cat $TEMP_FILE | cut -f 2 -d,`)
+    mac_array=(`cat $TEMP_FILE | cut -f 3 -d,`)
     until [ $counter -eq -1 ]; do # Items in an array are counted from 0 instead of 1, so this corrects for it.
 	 echo "INSERT INTO $SCANNED_TABLE_NAME (IpAddress,Hostname,MacAddress) 
 	 VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');" \
@@ -67,12 +67,12 @@ do_scan_import() # uses nbtscan (Best Option so far)
     
     make_tmp
     # Sets Display settings, and show what will be imported.
-    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE1
+    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE
     echo "SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME 
     WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
-    >> $TEMP_FILE1 
+    >> $TEMP_FILE 
     echo "Displaying records to be imported."
-    $SQLITE $DB_FILE < $TEMP_FILE1
+    $SQLITE $DB_FILE < $TEMP_FILE
     echo -e "Import? [y/n]---> \c"
     read selection
     case $selection in
@@ -106,7 +106,7 @@ signal_exit()
 
 clean_up()
 {
-    rm -f ${TEMP_FILE1}
+    rm -f ${TEMP_FILE}
 }
 
 error_exit()
@@ -123,8 +123,8 @@ make_tmp()
     else
 	TEMP_DIR=/tmp
     fi
-    TEMP_FILE1=$(mktemp -q "${TEMP_DIR}/${PROGNAME}.$$.XXXXXX")
-    if [ "$TEMP_FILE1" = "" ]; then
+    TEMP_FILE=$(mktemp -q "${TEMP_DIR}/${PROGNAME}.$$.XXXXXX")
+    if [ "$TEMP_FILE" = "" ]; then
 	echo "cannot create temp file!"
     exit 1
     fi
@@ -148,12 +148,12 @@ search_db()
     make_tmp
     # copy config into temp file
     config_settings
-    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE1
+    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE
     echo -e "Enter Search Term ---> \c"
     read STRING
     # Copy created query into temp file as well
-    echo "SELECT Hostname,IpAddress,MacAddress FROM clients WHERE Hostname LIKE '$STRING%';" >> $TEMP_FILE1
-    $SQLITE $DB_FILE < $TEMP_FILE1
+    echo "SELECT Hostname,IpAddress,MacAddress FROM clients WHERE Hostname LIKE '$STRING%';" >> $TEMP_FILE
+    $SQLITE $DB_FILE < $TEMP_FILE
     clean_up
 }
 
