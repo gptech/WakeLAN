@@ -22,10 +22,10 @@ config_file()
 # (ex. 192.168.1.0/24)
 LAN=
 
-# DB Options
+# DB Options - this controls how data is displayed
 HEADER_ENABLE=".headers on"
 TABLE_MODE=".mode column"
-TABLE_WIDTH=".width 20, 20, 20"
+TABLE_WIDTH=".width 16, 20, 20"
 _EOF_
 }
 
