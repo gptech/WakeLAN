@@ -6,12 +6,10 @@
 #                       http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
 
 SQLITE="sqlite3"
-CONFIG_FILE=."wakelan.conf"
+CONFIG_FILE=".wakelan.conf"
 # DB Variables
 DB_FILE="wakelan.db"
 TABLE_NAME="client"
-# nbtscan Variables
-LAN="172.17.10.0/24"
 
 config_settings()
 {
@@ -20,11 +18,29 @@ config_settings()
     else
         echo "Configuration Missing!"
 	echo "Creating new config file"
-        echo 'HEADER_ENABLE=".headers on"' >> $CONFIG_FILE
-	echo 'TABLE_MODE=".mode column"' >> $CONFIG_FILE 
-	echo 'TABLE_WIDTH=".width 20, 20, 20"' >> $CONFIG_FILE
-	. $CONFIG_FILE
+        config_file >> $CONFIG_FILE
+	echo "Please open $CONFIG_FILE and add Network Info."
+	echo "then re-run"
+	exit
     fi
+}
+
+config_file()
+{
+    cat <<- _EOF_
+# Configuration file for the WakeLAN Script
+# Values are double quoted, and leaving a value blank is
+# not recommended.
+
+# Enter your network information here with CIDR
+# (ex. 192.168.1.0/24)
+LAN=
+
+# DB Options
+HEADER_ENABLE=".headers on"
+TABLE_MODE=".mode column"
+TABLE_WIDTH=".width 20, 20, 20"
+_EOF_
 }
 
 do_scan_import() # uses nbtscan (Best Option so far)
