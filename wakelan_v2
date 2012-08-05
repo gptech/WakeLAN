@@ -17,8 +17,8 @@ config_file()
 {
     cat <<- _EOF_
 # Configuration file for the WakeLAN Script
-# Values are double quoted, and leaving a value blank is
-# not recommended.
+# Values are double quoted, and leaving a 
+# value blank is not recommended.
 
 # Enter your network information here with CIDR
 # (ex. 192.168.1.0/24)
@@ -214,7 +214,7 @@ package_check()
     fi
 
     if [ "${#UNMET_PKGS[@]}" = "0" ] ; then
-        menu
+        sleep 0s
     else
         for i in "${UNMET_PKGS[@]}" ; do 
             echo "$i is missing. (Required)"
