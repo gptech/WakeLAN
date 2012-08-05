@@ -7,19 +7,32 @@
 #       Resources from: 
 #       http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
 #       http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
-# TRY to add all SQL statements into a seperate function, and have them called as needed
-
-PROGNAME=$(basename $0)
-VERSION="2.0"
 
 SQLITE="sqlite3"
 CONFIG_FILE=".wakelan.conf"
+
 # DB Variables
 DB_FILE="wakelan.db"
 
+# Declare the program_info and sql_func as associative arrays
+# This prevents a 'bad array subscript' error.
+declare -A program_info
+declare -A sql_func
+
+# Associative arrays allow the string to be called easily and descriptively.
+# ex. program_info VERSION
+ 
+program_info()
+{
+    prog_info[PROGNAME]=$(basename $0)
+    prog_info[VERSION]="2.1.1"
+    prog_info[VER_INFO]="SQL Func Test"    
+    
+    echo "${prog_info["$1"]}"
+}
+
 load_sql()
 {   
-    declare -A sql_func
     # SQL Table Names
     sql_func[TABLE_NAME]="client"
     sql_func[SCANNED_TABLE_NAME]="${sql_func[TABLE_NAME]}_$TIMESTAMP"
@@ -35,25 +48,26 @@ load_sql()
     sql_func[DROP_SCAN_TABLE]="DROP TABLE IF EXISTS ${sql_func[SCANNED_TABLE_NAME]};"
     # SQL for Querying
     sql_func[SEARCH_DB_SIMILAR]="SELECT Hostname,IpAddress,MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname LIKE '$STRING%';"
-    sql_func[SEARCH_DB_EXACT]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
+    sql_func[SEARCH_DB_EXACT]="SELECT Hostname,IpAddress,MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
+    sql_func[SELECT_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
 
-    echo ${sql_func[$1]}
+    echo "${sql_func["$1"]}"
 }
 config_file()
 {
     cat <<- _EOF_
-# Configuration file for the WakeLAN Script
-# Values are double quoted, and leaving a value blank is
-# not recommended.
+# Configuration file for the WakeLAN script.
+# Values are double quoted, and leaving a value blank 
+# is not recommended.
 
-# Enter your network information here with CIDR
+# Enter your network information here (with CIDR)
 # (ex. 192.168.1.0/24)
 LAN=
 
 # DB Options - this controls how data is displayed
 HEADER_ENABLE=".headers on"
 TABLE_MODE=".mode column"
-TABLE_WIDTH=".width 16, 20, 20"
+TABLE_WIDTH=".width 16, 20, 17"
 _EOF_
 }
 
@@ -69,6 +83,11 @@ config_settings()
 	echo "then re-run"
 	exit
     fi
+}
+
+config_load()
+{
+    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH"
 }
 
 do_scan_import() # uses nbtscan (Best Option so far)
@@ -94,17 +113,15 @@ do_scan_import() # uses nbtscan (Best Option so far)
         let counter=counter-1
     done
     clean_up
-    
+
     make_tmp
     # Sets Display settings, and show what will be imported.
-    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH"\
-     >> $TEMP_FILE
+    config_load >> $TEMP_FILE
     load_sql SHOW_DISTINCT_SCAN_DATA >> $TEMP_FILE 
     echo "Displaying records to be imported."
     $SQLITE $DB_FILE < $TEMP_FILE
     echo -e "Import? [y/n]---> \c"
     read selection
-    load_sql
     case $selection in
         [yY] )  $SQLITE $DB_FILE "$(load_sql IMPORT_DISTINCT_SCAN_DATA)"
                 $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)" ;;
@@ -125,12 +142,12 @@ graceful_exit()
 signal_exit()
 {
     case $1 in
-	INT)	echo "$PROGNAME: Program aborted by user" >&2
-		clean_up ; exit ;;
-	TERM)	echo "$PROGNAME: Program terminated" >&2
-		clean_up ; exit ;;
-	*)	error_exit "$PROGNAME: Terminating on unknown signal"
-        ;;
+        INT)  echo "$PROGNAME: Program aborted by user" >&2
+              clean_up ; exit ;;
+        TERM)  echo "$PROGNAME: Program terminated" >&2
+               clean_up ; exit ;;
+        *)	  error_exit "$PROGNAME: Terminating on unknown signal"
+              ;;
     esac
 }
 
@@ -149,14 +166,14 @@ error_exit()
 make_tmp()
 {
     if [ -d ~/tmp ]; then
-	TEMP_DIR=~/tmp
+        TEMP_DIR=~/tmp
     else
-	TEMP_DIR=/tmp
+        TEMP_DIR=/tmp
     fi
-    TEMP_FILE=$(mktemp -q "${TEMP_DIR}/${PROGNAME}.$$.XXXXXX")
+    TEMP_FILE=$(mktemp -q "${TEMP_DIR}/${PROGNAME}.$$.XXXX")
     if [ "$TEMP_FILE" = "" ]; then
-	echo "cannot create temp file!"
-    exit 1
+        echo "cannot create temp file!"
+        exit 1
     fi
 }
 
@@ -176,13 +193,11 @@ search_db()
     # Create temp file to hold config and query
     make_tmp
     # copy config into temp file
-    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE
+    config_load >> $TEMP_FILE
     echo -e "Enter Search Term ---> \c"
     read STRING
     # Copy created query into temp file as well
-    echo "SELECT Hostname,IpAddress,MacAddress FROM\
-   $TABLE_NAME WHERE Hostname LIKE '$STRING%';"\
-    >> $TEMP_FILE
+    load_sql SEARCH_DB_SIMILAR >> $TEMP_FILE
     $SQLITE $DB_FILE < $TEMP_FILE
     clean_up
 }
@@ -190,15 +205,14 @@ search_db()
 do_start_wakeup()
 {
     make_tmp
-    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE
+    config_load >> $TEMP_FILE
     echo -e "Enter Name of PC to wakeup ---> \c"
     read STRING
-    echo "SELECT Hostname,IpAddress,MacAddress FROM $TABLE_NAME WHERE Hostname='$STRING';" >> $TEMP_FILE
+    load_sql SEARCH_DB_EXACT >> $TEMP_FILE
     $SQLITE $DB_FILE < $TEMP_FILE
     echo -e "Wakeup? [y/n] ---> \c"
     read selection
-    local WAKEMAC="SELECT MacAddress FROM $TABLE_NAME WHERE Hostname='$STRING';"
-    local MAC_ADDR=$(echo $WAKEMAC | $SQLITE $DB_FILE)
+    local MAC_ADDR=$(load_sql SELECT_MAC_ADDR | $SQLITE $DB_FILE)
     case $selection in
         [yY] ) wakeonlan $MAC_ADDR  ;;
         [nN] ) echo "Exiting" ; exit ;;
@@ -259,9 +273,15 @@ package_check()
 # real	0m8.471s
 # user	0m0.044s
 # sys	0m0.060s
-set -x
-config_settings
-do_scan_import
-#search_db
-#do_start_wakeup
+
+# Results of 'time' command on do_scan_import (on new db using load_sql):
+# real	0m10.237s
+# user	0m0.036s
+# sys   0m0.076s
+
+# Results of 'time' command on do_scan_import (on existing db using load_sql):
+# real	0m11.465s
+# user	0m0.024s
+# sys	0m0.084s
+
 
