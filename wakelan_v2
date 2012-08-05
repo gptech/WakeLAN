@@ -50,6 +50,9 @@ load_sql()
     sql_func[SEARCH_DB_SIMILAR]="SELECT Hostname,IpAddress,MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname LIKE '$STRING%';"
     sql_func[SEARCH_DB_EXACT]="SELECT Hostname,IpAddress,MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
     sql_func[SELECT_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
+    sql_func[SELECT_ALL_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]};"
+    sql_func[COUNT_TABLE_ROWS]="SELECT COUNT (*) FROM ${sql_func[TABLE_NAME]};"
+    sql_func[COUNT_SCAN_TABLE_ROWS]="SELECT COUNT (*) FROM ${sql_func[SCANNED_TABLE_NAME]};" # Not used yet
 
     echo "${sql_func["$1"]}"
 }
@@ -202,7 +205,7 @@ search_db()
     clean_up
 }
 
-do_start_wakeup()
+do_wakeup_one()
 {
     make_tmp
     config_load >> $TEMP_FILE
@@ -216,6 +219,21 @@ do_start_wakeup()
     case $selection in
         [yY] ) wakeonlan $MAC_ADDR  ;;
         [nN] ) echo "Exiting" ; exit ;;
+        * )    echo "invalid entry" ; exit ;;
+    esac
+    clean_up
+}
+
+do_wakeup_all()
+{
+   echo -e "WARNING: This will attempt to start all\
+ $(load_sql COUNT_TABLE_ROWS | $SQLITE $DB_FILE)\
+ entries currently in the database.\nAre you sure?[y/n]---> \c"
+    read selection
+    local MAC_ADDR=$(load_sql SELECT_ALL_MAC_ADDR | $SQLITE $DB_FILE)
+    case $selection in
+        [yY] ) wakeonlan $MAC_ADDR  ;;
+        [nN] ) exit ;;
         * )    echo "invalid entry" ; exit ;;
     esac
     clean_up
@@ -283,5 +301,5 @@ package_check()
 # real	0m11.465s
 # user	0m0.024s
 # sys	0m0.084s
-
-
+set -x
+do_wakeup_one
