@@ -5,6 +5,7 @@
 #       Version 2 - SQLite Support
 #       
 #       Resources from: 
+#       http://www.sqlite.org/
 #       http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
 #       http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
 
