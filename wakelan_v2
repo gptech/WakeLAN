@@ -1,10 +1,14 @@
 #!/bin/bash
+
 #       wakelan- Wakes up computers on LAN.
 #       Copyright 2012 Lemar Carthens <lemar.carthens1@gmail.com>
 #       Version 2 - SQLite Support
-#       Resources from: http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
-#                       http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
-# TRY to add all SQL statements into a seperate function, and havem them called as needed
+#       
+#       Resources from: 
+#       http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
+#       http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
+# TRY to add all SQL statements into a seperate function, and have them called as needed
+
 PROGNAME=$(basename $0)
 VERSION="2.0"
 
@@ -12,8 +16,25 @@ SQLITE="sqlite3"
 CONFIG_FILE=".wakelan.conf"
 # DB Variables
 DB_FILE="wakelan.db"
-TABLE_NAME="client"
 
+load_sql()
+{      
+    # Main table name
+    TABLE_NAME="client"  
+    # Table Creation SQL
+    INITIAL_TABLE_STRUCTURE="CREATE TABLE $TABLE_NAME (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
+    SCAN_TABLE_STRUCTURE="CREATE TABLE $SCANNED_TABLE_NAME (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
+    # SQL for importing values
+    IMPORT_INIT_SCAN_DATA="INSERT INTO $SCANNED_TABLE_NAME (IpAddress,Hostname,MacAddress) VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');"
+    IMPORT_DISTINCT_SCAN_DATA="INSERT INTO $TABLE_NAME (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"
+    # SQL for showing unique values
+    SHOW_DISTINCT_SCAN_DATA="SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"
+    # SQL for Dropping Tables
+    DROP_SCAN_TABLE="DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"
+    # SQL for Querying
+    SEARCH_DB_SIMILAR="SELECT Hostname,IpAddress,MacAddress FROM $TABLE_NAME WHERE Hostname LIKE '$STRING%';"
+    SEARCH_DB_EXACT="SELECT MacAddress FROM $TABLE_NAME WHERE Hostname='$STRING';"
+}
 config_file()
 {
     cat <<- _EOF_
@@ -48,21 +69,27 @@ config_settings()
 
 do_scan_import() # uses nbtscan (Best Option so far)
 {
-    check_db # Starts first to see if database exists. In Short, this MUST START FIRST!!
+    check_db # Starts first to see if db exists.
     make_tmp
     local TIMESTAMP=$(date +%m%d%y_%H%M%S)
-    SCANNED_TABLE_NAME="client_$TIMESTAMP"
-    local STRUCTURE="CREATE TABLE $SCANNED_TABLE_NAME (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
+    local SCANNED_TABLE_NAME="client_$TIMESTAMP"
+    load_sql
     echo "Now scanning the $LAN Network. Please be patient."
-    nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d, >> $TEMP_FILE
-    $SQLITE $DB_FILE "$STRUCTURE"
-    local counter=$(wc -l $TEMP_FILE | awk '{print $1-1}') #awk can do math, so the '-1' helps correct for the array
+    nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' |\
+    cut -f 1,2,5 -d, >> $TEMP_FILE
+    $SQLITE $DB_FILE "$SCAN_TABLE_STRUCTURE"
+    
+    # awk can do math, so the '-1' helps correct for the array
+    local counter=$(wc -l $TEMP_FILE | awk '{print $1-1}') 
     ip_array=(`cat $TEMP_FILE | cut -f 1 -d,`)
     host_array=(`cat $TEMP_FILE | cut -f 2 -d,`)
     mac_array=(`cat $TEMP_FILE | cut -f 3 -d,`)
-    until [ $counter -eq -1 ]; do # Items in an array are counted from 0 instead of 1, so this corrects for it.
-        echo "INSERT INTO $SCANNED_TABLE_NAME (IpAddress,Hostname,MacAddress) VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');"\
-        | $SQLITE $DB_FILE
+   
+    # Items in an array are counted from 0 instead of 1
+    # So this corrects for that.
+    until [ $counter -eq -1 ]; do
+        load_sql
+        echo "$IMPORT_INIT_SCAN_DATA" | $SQLITE $DB_FILE
         let counter=counter-1
     done
     clean_up
@@ -71,19 +98,17 @@ do_scan_import() # uses nbtscan (Best Option so far)
     # Sets Display settings, and show what will be imported.
     echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH"\
      >> $TEMP_FILE
-    echo "SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
-     >> $TEMP_FILE 
+    echo $SHOW_DISTINCT_SCAN_DATA >> $TEMP_FILE 
     echo "Displaying records to be imported."
     $SQLITE $DB_FILE < $TEMP_FILE
     echo -e "Import? [y/n]---> \c"
     read selection
+    load_sql
     case $selection in
-        [yY] )  echo "INSERT INTO $TABLE_NAME (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
-                | $SQLITE $DB_FILE && echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"\
-                | $SQLITE $DB_FILE ;;
-        [nN] ) echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"
-            =exit ;;
-        *)	   echo "Invalid entry. Abort" # Fix this up a bit
+        [yY] )  echo $IMPORT_DISTINCT_SCAN_DATA | $SQLITE $DB_FILE 
+                echo $DROP_SCAN_TABLE | $SQLITE $DB_FILE ;;
+        [nN] )  echo  $DROP_SCAN_TABLE | $SQLITE $DB_FILE ; exit ;;
+        *)	    echo "Invalid entry. Abort" # Fix this up a bit
             exit ;; 
     esac
     clean_up
@@ -236,6 +261,6 @@ package_check()
 set -x
 config_settings
 do_scan_import
-search_db
-do_start_wakeup
+#search_db
+#do_start_wakeup
 
