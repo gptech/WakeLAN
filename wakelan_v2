@@ -240,7 +240,7 @@ package_check()
     fi
 
     if [ "${#UNMET_PKGS[@]}" = "0" ] ; then
-        menu
+        sleep 0s
     else
         for i in "${UNMET_PKGS[@]}" ; do 
             echo "$i is missing. (Required)"
