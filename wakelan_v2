@@ -37,6 +37,8 @@ program_info()
 
 load_sql()
 {   
+    # SQL Program
+    sql_func[DB_TYPE]="sqlite3" 
     # SQL Database Name
     sql_func[DB_NAME]="wakelan.db"
     # SQL Table Names
@@ -46,7 +48,6 @@ load_sql()
     sql_func[INITIAL_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[TABLE_NAME]} (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
     sql_func[SCAN_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[SCANNED_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"
     # SQL for importing values
-    sql_func[IMPORT_INIT_SCAN_DATA]="INSERT INTO ${sql_func[SCANNED_TABLE_NAME]} (IpAddress,Hostname,MacAddress) VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');"
     sql_func[IMPORT_DISTINCT_SCAN_DATA]="INSERT INTO ${sql_func[TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
     # SQL for showing unique values
     sql_func[SHOW_DISTINCT_SCAN_DATA]="SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
@@ -61,6 +62,7 @@ load_sql()
     sql_func[COUNT_SCAN_TABLE_ROWS]="SELECT DISTINCT COUNT (*) FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress from ${sql_func[TABLE_NAME]});"
 
     echo "${sql_func["$1"]}"
+    
 }
 config_file()
 {
@@ -107,37 +109,37 @@ do_scan_import() # uses nbtscan (Best Option so far)
     echo -e "Now scanning the $LAN Network. Please be patient.\n"
     nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' |\
     cut -f 1,2,5 -d, >> $TEMP_FILE
-    $SQLITE $(load_sql DB_NAME) "$(load_sql SCAN_TABLE_STRUCTURE)"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql SCAN_TABLE_STRUCTURE)"
     echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql SCANNED_TABLE_NAME) \
-    | $SQLITE $(load_sql DB_NAME)
+    | $(load_sql DB_TYPE) $(load_sql DB_NAME)
     clean_up
     make_tmp
     # Sets Display settings, and show what will be imported.
     config_load >> $TEMP_FILE
     load_sql SHOW_DISTINCT_SCAN_DATA >> $TEMP_FILE 
-    local num=$(load_sql COUNT_SCAN_TABLE_ROWS | $SQLITE $(load_sql DB_NAME))
+    local num=$(load_sql COUNT_SCAN_TABLE_ROWS | $(load_sql DB_TYPE) $(load_sql DB_NAME))
     
     if [ $num -eq 0 ]; then
         echo -e "No records to import. Everything is up to date."
-        $SQLITE $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)" ; clean_up
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)" ; clean_up
         exit 0
     else
         echo -e "Displaying $num records to be imported.\n"
-        $SQLITE $(load_sql DB_NAME) < $TEMP_FILE
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) < $TEMP_FILE
         echo -e "Import? [y/n]---> \c"
         read selection
         case $selection in
-            [yY] )  $SQLITE $(load_sql DB_NAME) "$(load_sql IMPORT_DISTINCT_SCAN_DATA)"
-                    $SQLITE $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)"
+            [yY] )  $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql IMPORT_DISTINCT_SCAN_DATA)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)"
                     echo -e "Success!"
                     exit 
                     ;;
-            [nN] )  $SQLITE $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)"
+            [nN] )  $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)"
                     echo -e "Import Aborted"
                     exit 
                     ;;
             *)	    echo "Invalid entry. Abort" # Fix this up a bit
-                    $SQLITE $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)"
                     exit 
                     ;; 
         esac
@@ -200,7 +202,7 @@ check_db()
     else
         echo "Creating new Database: $(load_sql DB_NAME)"
         cat /dev/null > $(load_sql DB_NAME)
-        $SQLITE $(load_sql DB_NAME) "$(load_sql INITIAL_TABLE_STRUCTURE)"
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql INITIAL_TABLE_STRUCTURE)"
     fi
 }
 
@@ -214,7 +216,7 @@ search_db()
     read STRING
     # Copy created query into temp file as well
     load_sql SEARCH_DB_SIMILAR >> $TEMP_FILE
-    $SQLITE $(load_sql DB_NAME) < $TEMP_FILE
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) < $TEMP_FILE
     clean_up
 }
 
@@ -225,10 +227,10 @@ do_wakeup_one()
     echo -e "Enter Name of PC to wakeup ---> \c"
     read STRING
     load_sql SEARCH_DB_EXACT >> $TEMP_FILE
-    $SQLITE $(load_sql DB_NAME) < $TEMP_FILE
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) < $TEMP_FILE
     echo -e "Wakeup? [y/n] ---> \c"
     read selection
-    local MAC_ADDR=$(load_sql SELECT_MAC_ADDR | $SQLITE $(load_sql DB_NAME))
+    local MAC_ADDR=$(load_sql SELECT_MAC_ADDR | $(load_sql DB_TYPE) $(load_sql DB_NAME))
     case $selection in
         [yY] ) wakeonlan $MAC_ADDR  ;;
         [nN] ) echo "Exiting" ; exit ;;
@@ -240,10 +242,10 @@ do_wakeup_one()
 do_wakeup_all()
 {
    echo -e "WARNING: This will attempt to start all\
- $(load_sql COUNT_TABLE_ROWS | $SQLITE $(load_sql DB_NAME))\
+ $(load_sql COUNT_TABLE_ROWS | $(load_sql DB_TYPE) $(load_sql DB_NAME))\
  entries currently in the database.\nAre you sure?[y/n]---> \c"
     read selection
-    local MAC_ADDR=$(load_sql SELECT_ALL_MAC_ADDR | $SQLITE $(load_sql DB_NAME))
+    local MAC_ADDR=$(load_sql SELECT_ALL_MAC_ADDR | $(load_sql DB_TYPE) $(load_sql DB_NAME))
     case $selection in
         [yY] ) wakeonlan $MAC_ADDR  ;;
         [nN] ) exit ;;
