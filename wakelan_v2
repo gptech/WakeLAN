@@ -64,6 +64,7 @@ load_sql()
     echo "${sql_func["$1"]}"
     
 }
+
 config_file()
 {
     cat <<- _EOF_
@@ -100,6 +101,10 @@ config_load()
 {
     echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH"
 }
+import_load()
+{
+    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql SCANNED_TABLE_NAME)
+}
 
 do_scan_import() # uses nbtscan (Best Option so far)
 {
@@ -110,8 +115,7 @@ do_scan_import() # uses nbtscan (Best Option so far)
     nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' |\
     cut -f 1,2,5 -d, >> $TEMP_FILE
     $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql SCAN_TABLE_STRUCTURE)"
-    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql SCANNED_TABLE_NAME) \
-    | $(load_sql DB_TYPE) $(load_sql DB_NAME)
+    import_load | $(load_sql DB_TYPE) $(load_sql DB_NAME)
     clean_up
     make_tmp
     # Sets Display settings, and show what will be imported.
@@ -121,7 +125,8 @@ do_scan_import() # uses nbtscan (Best Option so far)
     
     if [ $num -eq 0 ]; then
         echo -e "No records to import. Everything is up to date."
-        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)" ; clean_up
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)" 
+        clean_up
         exit 0
     else
         echo -e "Displaying $num records to be imported.\n"
