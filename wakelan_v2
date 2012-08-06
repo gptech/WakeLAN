@@ -121,6 +121,7 @@ do_scan_import() # uses nbtscan (Best Option so far)
         [nN] )  $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)"
                 exit ;;
         *)	    echo "Invalid entry. Abort" # Fix this up a bit
+                $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)"
                 exit ;; 
     esac
     clean_up
