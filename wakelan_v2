@@ -11,8 +11,6 @@
 
 SQLITE="sqlite3"
 CONFIG_FILE=".wakelan.conf"
-SCAN_RESULTS=".scan_results.csv"
-
 # DB Variables
 DB_FILE="wakelan.db"
 
@@ -20,6 +18,9 @@ DB_FILE="wakelan.db"
 # This prevents a 'bad array subscript' error.
 declare -A program_info
 declare -A sql_func
+
+trap "signal_exit TERM" TERM HUP
+trap "signal_exit INT"  INT
 
 # Associative arrays allow the string to be called easily and descriptively.
 # ex. program_info VERSION
@@ -54,7 +55,7 @@ load_sql()
     sql_func[SELECT_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
     sql_func[SELECT_ALL_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]};"
     sql_func[COUNT_TABLE_ROWS]="SELECT COUNT (*) FROM ${sql_func[TABLE_NAME]};"
-    sql_func[COUNT_SCAN_TABLE_ROWS]="SELECT COUNT (*) FROM ${sql_func[SCANNED_TABLE_NAME]};" # Not used yet
+    sql_func[COUNT_SCAN_TABLE_ROWS]="SELECT DISTINCT COUNT (*) FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress from ${sql_func[TABLE_NAME]});" # Not used yet
 
     echo "${sql_func["$1"]}"
 }
@@ -111,19 +112,32 @@ do_scan_import() # uses nbtscan (Best Option so far)
     # Sets Display settings, and show what will be imported.
     config_load >> $TEMP_FILE
     load_sql SHOW_DISTINCT_SCAN_DATA >> $TEMP_FILE 
-    echo "Displaying records to be imported."
-    $SQLITE $DB_FILE < $TEMP_FILE
-    echo -e "Import? [y/n]---> \c"
-    read selection
-    case $selection in
-        [yY] )  $SQLITE $DB_FILE "$(load_sql IMPORT_DISTINCT_SCAN_DATA)"
-                $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)" ;;
-        [nN] )  $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)"
-                exit ;;
-        *)	    echo "Invalid entry. Abort" # Fix this up a bit
-                $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)"
-                exit ;; 
-    esac
+    local num=$(load_sql COUNT_SCAN_TABLE_ROWS | $SQLITE $DB_FILE)
+    
+    if [ $num -eq 0 ]; then
+        echo "No records to import. Everything is up to date."
+        $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)" ; clean_up
+        exit 0
+    else
+        echo "Displaying $num records to be imported."
+        $SQLITE $DB_FILE < $TEMP_FILE
+        echo -e "Import? [y/n]---> \c"
+        read selection
+        case $selection in
+            [yY] )  $SQLITE $DB_FILE "$(load_sql IMPORT_DISTINCT_SCAN_DATA)"
+                    $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)"
+                    echo "Success!"
+                    exit 
+                    ;;
+            [nN] )  $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)"
+                    exit 
+                    ;;
+            *)	    echo "Invalid entry. Abort" # Fix this up a bit
+                    $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)"
+                    exit 
+                    ;; 
+        esac
+    fi
     clean_up
 }
 
@@ -137,9 +151,13 @@ signal_exit()
 {
     case $1 in
         INT)  echo "$PROGNAME: Program aborted by user" >&2
-              clean_up ; exit ;;
-        TERM)  echo "$PROGNAME: Program terminated" >&2
-               clean_up ; exit ;;
+              clean_up 
+              exit 
+              ;;
+        TERM) echo "$PROGNAME: Program terminated" >&2
+              clean_up 
+              exit 
+              ;;
         *)	  error_exit "$PROGNAME: Terminating on unknown signal"
               ;;
     esac
@@ -234,7 +252,7 @@ package_check()
 {  
     REQ_PKGS=("wakeonlan" "nbtscan" "sqlite3")
     UNMET_PKGS=()
-    OPT_PKGS=()
+    OPT_PKGS=("nmap")
     UNMET_OPT_PKGS=()
 
     for PACKAGE in "${REQ_PKGS[@]}" ; do
@@ -273,35 +291,4 @@ package_check()
     fi
 }
 
-# Results of the 'time' command on do_scan_import (on new db):
-# real	0m9.362s
-# user	0m0.028s
-# sys	0m0.088s
-
-# Results of the 'time' command on do_scan_import (on existing db):
-# real	0m8.471s
-# user	0m0.044s
-# sys	0m0.060s
-
-# Results of 'time' command on do_scan_import (on new db using load_sql):
-# real	0m10.237s
-# user	0m0.036s
-# sys   0m0.076s
-
-# Results of 'time' command on do_scan_import (on existing db using load_sql):
-# real	0m11.465s
-# user	0m0.024s
-# sys	0m0.084s
-
-# Results of 'time' command on do_scan_import (modified; new db):
-# real	0m7.021s
-# user	0m0.004s
-# sys	0m0.032s
-
-# Results of 'time' command on do_scan_import (modified; existing db):
-# real	0m7.163s
-# user	0m0.008s
-# sys	0m0.020s
-
-set -x
 do_scan_import
