@@ -292,11 +292,15 @@ package_check()
 # user	0m0.024s
 # sys	0m0.084s
 
-# Results of 'time' command on do_scan_import (on new db using load_sql):
+# Results of 'time' command on do_scan_import (modified; new db):
+# real	0m7.021s
+# user	0m0.004s
+# sys	0m0.032s
 
-
-
-
+# Results of 'time' command on do_scan_import (modified; existing db):
+# real	0m7.163s
+# user	0m0.008s
+# sys	0m0.020s
 
 set -x
-time do_scan_import
+do_scan_import
