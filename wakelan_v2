@@ -62,7 +62,6 @@ load_sql()
     sql_func[COUNT_SCAN_TABLE_ROWS]="SELECT DISTINCT COUNT (*) FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress from ${sql_func[TABLE_NAME]});"
 
     echo "${sql_func["$1"]}"
-    
 }
 
 config_file()
@@ -89,10 +88,10 @@ config_settings()
         . $CONFIG_FILE
     else
         echo "Configuration Missing!"
-	echo "Creating new config file"
+        echo "Creating new config file"
         config_file >> $CONFIG_FILE
-	echo "Please open $CONFIG_FILE and add Network Info."
-	echo "then re-run"
+        echo "Please open $CONFIG_FILE and add Network Info."
+        echo "then re-run"
 	exit
     fi
 }
@@ -302,5 +301,3 @@ package_check()
         exit 32
     fi
 }
-
-do_scan_import
