@@ -101,6 +101,7 @@ config_load()
 {
     echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH"
 }
+
 import_load()
 {
     echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql SCANNED_TABLE_NAME)
