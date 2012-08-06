@@ -1,13 +1,32 @@
 #!/bin/bash
 
-#       wakelan- Wakes up computers on LAN.
-#       Copyright 2012 Lemar Carthens <lemar.carthens1@gmail.com>
-#       Version 2 - SQLite Support
+#  wakelan- Wakes up computers on LAN.
+#
+#  Copyright 2012 Lemar Carthens <lemar.carthens1@gmail.com>
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#  
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#  
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+#  MA 02110-1301, USA.
+#  
+
+#  Version 2 - SQLite Support
 #       
-#       Resources from: 
-#       http://www.sqlite.org/
-#       http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
-#       http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
+#  Resources from: 
+#  http://www.sqlite.org/
+#  http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
+#  http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
+#  http://ubuntuforums.org/showthread.php?t=1656571 - slightly modified nmap 
+#  parser by Crusty Old Fart.
 
 SQLITE="sqlite3"
 CONFIG_FILE=".wakelan.conf"
@@ -16,8 +35,9 @@ CONFIG_FILE=".wakelan.conf"
 
 # Declare the program_info and sql_func as associative arrays
 # This prevents a 'bad array subscript' error.
-declare -A program_info
+declare -A prog_info
 declare -A sql_func
+declare -A scan_opt
 
 # Trap TERM, HUP, and INT signals and properly exit
 trap "signal_exit TERM" TERM HUP
@@ -62,6 +82,15 @@ load_sql()
     sql_func[COUNT_SCAN_TABLE_ROWS]="SELECT DISTINCT COUNT (*) FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress from ${sql_func[TABLE_NAME]});"
 
     echo "${sql_func["$1"]}"
+}
+
+load_scanner()
+{
+    scan_opt[NBTSCAN]=$(nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d,)
+    #scan_opt[]=
+    #scan_opt[]=
+    
+    echo "${scan_opt["$1"]}"
 }
 
 config_file()
@@ -112,8 +141,7 @@ do_scan_import() # uses nbtscan (Best Option so far)
     check_db # Starts first to see if db exists.
     make_tmp
     echo -e "Now scanning the $LAN Network. Please be patient.\n"
-    nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' |\
-    cut -f 1,2,5 -d, >> $TEMP_FILE
+    $(load_scanner NBTSCAN) >> $TEMP_FILE
     $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql SCAN_TABLE_STRUCTURE)"
     import_load | $(load_sql DB_TYPE) $(load_sql DB_NAME)
     clean_up
@@ -301,3 +329,4 @@ package_check()
         exit 32
     fi
 }
+do_scan_import
