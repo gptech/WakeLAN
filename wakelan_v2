@@ -11,6 +11,7 @@
 
 SQLITE="sqlite3"
 CONFIG_FILE=".wakelan.conf"
+SCAN_RESULTS=".scan_results.csv"
 
 # DB Variables
 DB_FILE="wakelan.db"
@@ -36,10 +37,10 @@ load_sql()
 {   
     # SQL Table Names
     sql_func[TABLE_NAME]="client"
-    sql_func[SCANNED_TABLE_NAME]="${sql_func[TABLE_NAME]}_$TIMESTAMP"
+    sql_func[SCANNED_TABLE_NAME]="temp_${sql_func[TABLE_NAME]}"
     # Table Creation SQL
     sql_func[INITIAL_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[TABLE_NAME]} (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
-    sql_func[SCAN_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[SCANNED_TABLE_NAME]} (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
+    sql_func[SCAN_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[SCANNED_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"
     # SQL for importing values
     sql_func[IMPORT_INIT_SCAN_DATA]="INSERT INTO ${sql_func[SCANNED_TABLE_NAME]} (IpAddress,Hostname,MacAddress) VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');"
     sql_func[IMPORT_DISTINCT_SCAN_DATA]="INSERT INTO ${sql_func[TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
@@ -96,28 +97,16 @@ config_load()
 
 do_scan_import() # uses nbtscan (Best Option so far)
 {
+    config_settings
     check_db # Starts first to see if db exists.
     make_tmp
-    local TIMESTAMP=$(date +%m%d%y_%H%M%S)
     echo "Now scanning the $LAN Network. Please be patient."
     nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' |\
     cut -f 1,2,5 -d, >> $TEMP_FILE
     $SQLITE $DB_FILE "$(load_sql SCAN_TABLE_STRUCTURE)"
-    
-    # awk can do math, so the '-1' helps correct for the array
-    local counter=$(wc -l $TEMP_FILE | awk '{print $1-1}') 
-    ip_array=(`cat $TEMP_FILE | cut -f 1 -d,`)
-    host_array=(`cat $TEMP_FILE | cut -f 2 -d,`)
-    mac_array=(`cat $TEMP_FILE | cut -f 3 -d,`)
-   
-    # Items in an array are counted from 0 instead of 1
-    # So this corrects for that.
-    until [ $counter -eq -1 ]; do
-        $SQLITE $DB_FILE "$(load_sql IMPORT_INIT_SCAN_DATA)"
-        let counter=counter-1
-    done
+    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql SCANNED_TABLE_NAME) \
+    | $SQLITE $DB_FILE
     clean_up
-
     make_tmp
     # Sets Display settings, and show what will be imported.
     config_load >> $TEMP_FILE
@@ -302,5 +291,12 @@ package_check()
 # real	0m11.465s
 # user	0m0.024s
 # sys	0m0.084s
+
+# Results of 'time' command on do_scan_import (on new db using load_sql):
+
+
+
+
+
 set -x
-do_wakeup_one
+time do_scan_import
