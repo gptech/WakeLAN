@@ -19,6 +19,7 @@ DB_FILE="wakelan.db"
 declare -A program_info
 declare -A sql_func
 
+# Trap TERM, HUP, and INT signals and properly exit
 trap "signal_exit TERM" TERM HUP
 trap "signal_exit INT"  INT
 
