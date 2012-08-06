@@ -56,7 +56,7 @@ load_sql()
     sql_func[SELECT_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
     sql_func[SELECT_ALL_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]};"
     sql_func[COUNT_TABLE_ROWS]="SELECT COUNT (*) FROM ${sql_func[TABLE_NAME]};"
-    sql_func[COUNT_SCAN_TABLE_ROWS]="SELECT DISTINCT COUNT (*) FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress from ${sql_func[TABLE_NAME]});" # Not used yet
+    sql_func[COUNT_SCAN_TABLE_ROWS]="SELECT DISTINCT COUNT (*) FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress from ${sql_func[TABLE_NAME]});"
 
     echo "${sql_func["$1"]}"
 }
@@ -102,7 +102,7 @@ do_scan_import() # uses nbtscan (Best Option so far)
     config_settings
     check_db # Starts first to see if db exists.
     make_tmp
-    echo "Now scanning the $LAN Network. Please be patient."
+    echo -e "Now scanning the $LAN Network. Please be patient.\n"
     nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' |\
     cut -f 1,2,5 -d, >> $TEMP_FILE
     $SQLITE $DB_FILE "$(load_sql SCAN_TABLE_STRUCTURE)"
@@ -116,21 +116,22 @@ do_scan_import() # uses nbtscan (Best Option so far)
     local num=$(load_sql COUNT_SCAN_TABLE_ROWS | $SQLITE $DB_FILE)
     
     if [ $num -eq 0 ]; then
-        echo "No records to import. Everything is up to date."
+        echo -e "No records to import. Everything is up to date."
         $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)" ; clean_up
         exit 0
     else
-        echo "Displaying $num records to be imported."
+        echo "Displaying $num records to be imported.\n"
         $SQLITE $DB_FILE < $TEMP_FILE
         echo -e "Import? [y/n]---> \c"
         read selection
         case $selection in
             [yY] )  $SQLITE $DB_FILE "$(load_sql IMPORT_DISTINCT_SCAN_DATA)"
                     $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)"
-                    echo "Success!"
+                    echo -e "\nSuccess!"
                     exit 
                     ;;
             [nN] )  $SQLITE $DB_FILE "$(load_sql DROP_SCAN_TABLE)"
+                    echo -e"\nImport Aborted"
                     exit 
                     ;;
             *)	    echo "Invalid entry. Abort" # Fix this up a bit
