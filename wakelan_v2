@@ -65,7 +65,7 @@ load_sql()
     sql_func[TABLE_NAME]="client"
     sql_func[SCANNED_TABLE_NAME]="temp_${sql_func[TABLE_NAME]}"
     # Table Creation SQL
-    sql_func[INITIAL_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[TABLE_NAME]} (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
+    sql_func[MAIN_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[TABLE_NAME]} (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
     sql_func[SCAN_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[SCANNED_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"
     # SQL for importing values
     sql_func[IMPORT_DISTINCT_SCAN_DATA]="INSERT INTO ${sql_func[TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
@@ -84,7 +84,7 @@ load_sql()
     echo "${sql_func["$1"]}"
 }
 
-load_scanner()
+scanner()
 {
     scan_opt[NBTSCAN]=$(nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d,)
     #scan_opt[]=
@@ -141,7 +141,7 @@ do_scan_import() # uses nbtscan (Best Option so far)
     check_db # Starts first to see if db exists.
     make_tmp
     echo -e "Now scanning the $LAN Network. Please be patient.\n"
-    $(load_scanner NBTSCAN) >> $TEMP_FILE
+    $(scanner NBTSCAN) >> $TEMP_FILE
     $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql SCAN_TABLE_STRUCTURE)"
     import_load | $(load_sql DB_TYPE) $(load_sql DB_NAME)
     clean_up
@@ -235,7 +235,7 @@ check_db()
     else
         echo "Creating new Database: $(load_sql DB_NAME)"
         cat /dev/null > $(load_sql DB_NAME)
-        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql INITIAL_TABLE_STRUCTURE)"
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql MAIN_TABLE_STRUCTURE)"
     fi
 }
 
