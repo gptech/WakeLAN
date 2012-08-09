@@ -28,10 +28,14 @@
 #  http://ubuntuforums.org/showthread.php?t=1656571 - slightly modified nmap 
 #  parser by Crusty Old Fart.
 
-SQLITE="sqlite3"
 CONFIG_FILE=".wakelan.conf"
-# DB Variables
-#DB_FILE="wakelan.db"
+
+# Programs
+SUDO="/usr/bin/sudo"
+NMAP="/usr/bin/nmap -n"
+ARPSCAN="/usr/bin/arp-scan"
+NBTSCAN="/usr/bin/nbtscan"
+WAKEONLAN="/usr/bin/wakeonlan"
 
 # Declare the program_info and sql_func as associative arrays
 # This prevents a 'bad array subscript' error.
@@ -86,11 +90,39 @@ load_sql()
 
 scanner()
 {
-    scan_opt[NBTSCAN]=$(nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d,)
-    #scan_opt[]=
-    #scan_opt[]=
-    
+    scan_opt[NBTSCAN]=$($SUDO $NBTSCAN -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d,)
+    scan_opt[ARPSCAN]=$($SUDO $ARPSCAN $LAN | sed -e '/./!d' -e '1,2d' -e 'N;$!P;$!D;$d' | sed 's/\t/,ARP-SCAN,/g' | cut -f 1,2,3 -d,)
     echo "${scan_opt["$1"]}"
+}
+
+nmap_scanner() # This takes a while. I dont think it will survive the cut
+{
+    make_tmp
+    $SUDO $NMAP $LAN >> $TEMP_FILE
+    if [ $? -eq 0 ]; then
+        declare -a nmap_array=($(
+        grep -e report -e MAC "$TEMP_FILE" | \
+        sed -e '{
+            s/Nmap scan report for //g
+            s/MAC Address: //g
+            s/ (.\+//g
+        }'
+     ))    
+        clean_up
+        
+        make_tmp
+        nmap_array_len=${#nmap_array[@]}
+        echo -n > "$TEMP_FILE"
+        for (( i = 0; i <= $nmap_array_len; i++ )); do
+            while (( $(echo ${nmap_array[$i]} | grep -c '[0-9A-F]\+:') < 1 )); do
+                (( i++ ))
+            done
+            echo ${nmap_array[(( $i - 1 ))]}',NMAP-SCAN,'${nmap_array[$i]}
+            (( i++ ))
+        done
+    fi
+    less $TEMP_FILE
+    clean_up
 }
 
 config_file()
@@ -141,7 +173,8 @@ do_scan_import() # uses nbtscan (Best Option so far)
     check_db # Starts first to see if db exists.
     make_tmp
     echo -e "Now scanning the $LAN Network. Please be patient.\n"
-    $(scanner NBTSCAN) >> $TEMP_FILE
+    scanner NBTSCAN >> $TEMP_FILE
+    scanner ARPSCAN >> $TEMP_FILE
     $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql SCAN_TABLE_STRUCTURE)"
     import_load | $(load_sql DB_TYPE) $(load_sql DB_NAME)
     clean_up
@@ -329,4 +362,5 @@ package_check()
         exit 32
     fi
 }
+
 do_scan_import
