@@ -69,7 +69,7 @@ load_sql()
     sql_func[TABLE_NAME]="client"
     sql_func[SCANNED_TABLE_NAME]="temp_${sql_func[TABLE_NAME]}"
     # Table Creation SQL
-    sql_func[MAIN_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[TABLE_NAME]} (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
+    sql_func[MAIN_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[TABLE_NAME]} (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,MacAddress) ON CONFLICT REPLACE);"
     sql_func[SCAN_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[SCANNED_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"
     # SQL for importing values
     sql_func[IMPORT_DISTINCT_SCAN_DATA]="INSERT INTO ${sql_func[TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
@@ -172,12 +172,16 @@ do_scan_import() # uses nbtscan (Best Option so far)
     config_settings
     check_db # Starts first to see if db exists.
     make_tmp
-    echo -e "Now scanning the $LAN Network. Please be patient.\n"
-    scanner NBTSCAN >> $TEMP_FILE
-    scanner ARPSCAN >> $TEMP_FILE
-    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql SCAN_TABLE_STRUCTURE)"
-    import_load | $(load_sql DB_TYPE) $(load_sql DB_NAME)
+        echo -e "Now scanning the $LAN Network. Please be patient.\n"
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql SCAN_TABLE_STRUCTURE)"
+        scanner NBTSCAN >> $TEMP_FILE
+        import_load | $(load_sql DB_TYPE) $(load_sql DB_NAME)
     clean_up
+    make_tmp
+        scanner ARPSCAN >> $TEMP_FILE
+        import_load | $(load_sql DB_TYPE) $(load_sql DB_NAME)
+    clean_up
+    
     make_tmp
     # Sets Display settings, and show what will be imported.
     config_load >> $TEMP_FILE
