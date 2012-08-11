@@ -185,15 +185,9 @@ scanner_nmap() # This takes a while. I dont think it will survive the cut
 config_file()
 {
     cat <<- _EOF_
-<<<<<<< HEAD
 # Configuration file for the WakeLAN Script
 # Values are double quoted, and leaving a 
 # value blank is not recommended.
-=======
-# Configuration file for the WakeLAN script.
-# Values are double quoted, and leaving a value blank 
-# is not recommended.
->>>>>>> sqlfunc
 
 # Enter your network information here (with CIDR)
 # (ex. 192.168.1.0/24)
