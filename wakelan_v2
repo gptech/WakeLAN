@@ -63,29 +63,72 @@ load_sql()
 {   
     # SQL Program
     sql_func[DB_TYPE]="sqlite3" 
+    
     # SQL Database Name
     sql_func[DB_NAME]="wakelan.db"
+    
     # SQL Table Names
     sql_func[TABLE_NAME]="client"
-    sql_func[SCANNED_TABLE_NAME]="temp_${sql_func[TABLE_NAME]}"
+    sql_func[TEMP_TABLE_NAME]="temp_${sql_func[TABLE_NAME]}"
+    sql_func[ARPSCAN_TEMP_TABLE_NAME]="arpscan_temp_${sql_func[TABLE_NAME]}"
+    sql_func[NBTSCAN_TEMP_TABLE_NAME]="nbtscan_temp_${sql_func[TABLE_NAME]}"
+ 
+    
     # Table Creation SQL
-    sql_func[MAIN_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[TABLE_NAME]} (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,MacAddress) ON CONFLICT REPLACE);"
-    sql_func[SCAN_TABLE_STRUCTURE]="CREATE TABLE ${sql_func[SCANNED_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"
+    sql_func[CREATE_MAIN_TABLE]="CREATE TABLE ${sql_func[TABLE_NAME]} (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,MacAddress) ON CONFLICT REPLACE);"
+    sql_func[CREATE_TEMP_TABLE]="CREATE TABLE ${sql_func[TEMP_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"
+    sql_func[CREATE_ARPSCAN_TEMP_TABLE]="CREATE TABLE ${sql_func[ARPSCAN_TEMP_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"
+    sql_func[CREATE_NBTSCAN_TEMP_TABLE]="CREATE TABLE ${sql_func[NBTSCAN_TEMP_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"    
+
+    
+    # SQL for getting rid of duplicate values. 
+    # It Deletes every Value from the arpscan_temp_client 
+    # table where the MAC address corresponds to the value 
+    # in the nbtscan_temp_client table. I made it this way 
+    # because nbtscan will give you a hostname, while
+    # arpscan dosent.
+    sql_func[DROP_DUPLICATES]="DELETE FROM ${sql_func[ARPSCAN_TEMP_TABLE_NAME]} WHERE MacAddress IN (SELECT MacAddress FROM ${sql_func[NBTSCAN_TEMP_TABLE_NAME]});"
+    
+    # SQL to Import into final table for sorting
+    sql_func[IMPORT_ARPSCAN_TEMP]="INSERT INTO ${sql_func[TEMP_TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT IpAddress,Hostname,MacAddress FROM ${sql_func[ARPSCAN_TEMP_TABLE_NAME]};"
+    sql_func[IMPORT_NBTSCAN_TEMP]="INSERT INTO ${sql_func[TEMP_TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT IpAddress,Hostname,MacAddress FROM ${sql_func[NBTSCAN_TEMP_TABLE_NAME]};"
+    
+    
     # SQL for importing values
-    sql_func[IMPORT_DISTINCT_SCAN_DATA]="INSERT INTO ${sql_func[TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
+    sql_func[IMPORT_DISTINCT_SCAN_DATA]="INSERT INTO ${sql_func[TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[TEMP_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
+    
     # SQL for showing unique values
-    sql_func[SHOW_DISTINCT_SCAN_DATA]="SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
+    sql_func[SHOW_DISTINCT_SCAN_DATA]="SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[TEMP_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
+    
     # SQL for Dropping Tables
-    sql_func[DROP_SCAN_TABLE]="DROP TABLE IF EXISTS ${sql_func[SCANNED_TABLE_NAME]};"
+    sql_func[DROP_TEMP_TABLE]="DROP TABLE IF EXISTS ${sql_func[TEMP_TABLE_NAME]};"
+    sql_func[DROP_TEMP_ARPSCAN_TABLE]="DROP TABLE IF EXISTS ${sql_func[ARPSCAN_TEMP_TABLE_NAME]};"
+    sql_func[DROP_TEMP_NBTSCAN_TABLE]="DROP TABLE IF EXISTS ${sql_func[NBTSCAN_TEMP_TABLE_NAME]};"
+    
     # SQL for Querying
+    sql_func[SHOW_ALL]="SELECT * FROM ${sql_func[TABLE_NAME]};"
     sql_func[SEARCH_DB_SIMILAR]="SELECT Hostname,IpAddress,MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname LIKE '$STRING%';"
     sql_func[SEARCH_DB_EXACT]="SELECT Hostname,IpAddress,MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
     sql_func[SELECT_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
     sql_func[SELECT_ALL_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]};"
     sql_func[COUNT_TABLE_ROWS]="SELECT COUNT (*) FROM ${sql_func[TABLE_NAME]};"
-    sql_func[COUNT_SCAN_TABLE_ROWS]="SELECT DISTINCT COUNT (*) FROM ${sql_func[SCANNED_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress from ${sql_func[TABLE_NAME]});"
+    sql_func[COUNT_TEMP_TABLE_ROWS]="SELECT DISTINCT COUNT (*) FROM ${sql_func[TEMP_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress from ${sql_func[TABLE_NAME]});"
 
     echo "${sql_func["$1"]}"
+}
+
+create_temp_tables()
+{
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql CREATE_TEMP_TABLE)"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql CREATE_ARPSCAN_TEMP_TABLE)"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql CREATE_NBTSCAN_TEMP_TABLE)"
+}
+
+drop_duplicates_import()
+{
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_DUPLICATES)"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql IMPORT_NBTSCAN_TEMP)"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql IMPORT_ARPSCAN_TEMP)"
 }
 
 scanner_nbtscan()
@@ -93,7 +136,7 @@ scanner_nbtscan()
     make_tmp
     $NBTSCAN -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d,\
     >> $TEMP_FILE
-    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql SCANNED_TABLE_NAME)\ # MUST BE CHANGED
+    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql NBTSCAN_TEMP_TABLE_NAME)\
     | $(load_sql DB_TYPE) $(load_sql DB_NAME)
     clean_up
     
@@ -104,20 +147,12 @@ scanner_arpscan()
     make_tmp
     $SUDO $ARPSCAN $LAN | sed -e '/./!d' -e '1,2d' -e 'N;$!P;$!D;$d' | sed 's/\t/,ARP-SCAN,/g' | cut -f 1,2,3 -d,\
     >> $TEMP_FILE
-    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql SCANNED_TABLE_NAME)\ # MUST BE CHANGED
+    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql ARPSCAN_TEMP_TABLE_NAME)\
     | $(load_sql DB_TYPE) $(load_sql DB_NAME)
     clean_up
 }
 
-scanner()
-{
-    scan_opt[NBTSCAN]=$($NBTSCAN -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d,)
-    scan_opt[ARPSCAN]=$($SUDO $ARPSCAN $LAN | sed -e '/./!d' -e '1,2d' -e 'N;$!P;$!D;$d' | sed 's/\t/,ARP-SCAN,/g' | cut -f 1,2,3 -d,)
-    
-    echo "${scan_opt["$1"]}"
-}
-
-nmap_scanner() # This takes a while. I dont think it will survive the cut
+scanner_nmap() # This takes a while. I dont think it will survive the cut
 {
     make_tmp
     $SUDO $NMAP $LAN >> $TEMP_FILE
@@ -161,7 +196,7 @@ LAN=
 # DB Options - this controls how data is displayed
 HEADER_ENABLE=".headers on"
 TABLE_MODE=".mode column"
-TABLE_WIDTH=".width 16, 20, 17"
+TABLE_WIDTH=".width 16, 18, 18, 18"
 _EOF_
 }
 
@@ -193,26 +228,21 @@ do_scan_import() # uses nbtscan (Best Option so far)
 {
     config_settings
     check_db # Starts first to see if db exists.
-    make_tmp
-        echo -e "Now scanning the $LAN Network. Please be patient.\n"
-        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql SCAN_TABLE_STRUCTURE)"
-        scanner NBTSCAN >> $TEMP_FILE
-        import_load | $(load_sql DB_TYPE) $(load_sql DB_NAME)
-    clean_up
-    make_tmp
-        scanner ARPSCAN >> $TEMP_FILE
-        import_load | $(load_sql DB_TYPE) $(load_sql DB_NAME)
-    clean_up
-    
+    create_temp_tables
+        scanner_arpscan
+        scanner_nbtscan
+        drop_duplicates_import 
     make_tmp
     # Sets Display settings, and show what will be imported.
     config_load >> $TEMP_FILE
     load_sql SHOW_DISTINCT_SCAN_DATA >> $TEMP_FILE 
-    local num=$(load_sql COUNT_SCAN_TABLE_ROWS | $(load_sql DB_TYPE) $(load_sql DB_NAME))
+    local num=$(load_sql COUNT_TEMP_TABLE_ROWS | $(load_sql DB_TYPE) $(load_sql DB_NAME))
     
     if [ $num -eq 0 ]; then
         echo -e "No records to import. Everything is up to date."
-        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)" 
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_TABLE)"
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_ARPSCAN_TABLE)" 
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_NBTSCAN_TABLE)"
         clean_up
         exit 0
     else
@@ -222,21 +252,29 @@ do_scan_import() # uses nbtscan (Best Option so far)
         read selection
         case $selection in
             [yY] )  $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql IMPORT_DISTINCT_SCAN_DATA)"
-                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_TABLE)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_ARPSCAN_TABLE)" 
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_NBTSCAN_TABLE)"
                     echo -e "Success!"
+                    clean_up
                     exit 
                     ;;
-            [nN] )  $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)"
+            [nN] )  $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_TABLE)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_ARPSCAN_TABLE)" 
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_NBTSCAN_TABLE)"
                     echo -e "Import Aborted"
+                    clean_up
                     exit 
                     ;;
             *)	    echo "Invalid entry. Abort" # Fix this up a bit
-                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_SCAN_TABLE)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_TABLE)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_ARPSCAN_TABLE)" 
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_NBTSCAN_TABLE)"
+                    clean_up
                     exit 
                     ;; 
         esac
     fi
-    clean_up
 }
 
 graceful_exit()
@@ -294,7 +332,7 @@ check_db()
     else
         echo "Creating new Database: $(load_sql DB_NAME)"
         cat /dev/null > $(load_sql DB_NAME)
-        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql MAIN_TABLE_STRUCTURE)"
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql CREATE_MAIN_TABLE)"
     fi
 }
 
@@ -309,6 +347,17 @@ search_db()
     # Copy created query into temp file as well
     load_sql SEARCH_DB_SIMILAR >> $TEMP_FILE
     $(load_sql DB_TYPE) $(load_sql DB_NAME) < $TEMP_FILE
+    clean_up
+}
+
+show_db()
+{
+    make_tmp
+    config_settings
+    config_load >> $TEMP_FILE
+    load_sql SHOW_ALL >> $TEMP_FILE
+    echo -e "Loading all records. \n"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) < $TEMP_FILE | less
     clean_up
 }
 
@@ -388,5 +437,4 @@ package_check()
         exit 32
     fi
 }
-set -x
-check_db
+show_db
