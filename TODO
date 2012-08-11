@@ -1,4 +1,5 @@
-Add wakeonlan wakeup options
+Add wakeonlan wakeup options +
 Add command-line options
 Add Last-Modified and Last-Added fields to client table
+Add a function to scan and parse nmap data //in-progress
 And whatever else comes to mind

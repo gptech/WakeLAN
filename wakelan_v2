@@ -1,33 +1,208 @@
 #!/bin/bash
-#       wakelan- Wakes up computers on LAN.
-#       Copyright 2012 Lemar Carthens <lemar.carthens1@gmail.com>
-#       Version 2 - SQLite Support
-#       Resources from: http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
-#                       http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
-PROGNAME=$(basename $0)
-VERSION="2.0"
 
-SQLITE="sqlite3"
+#  wakelan- Wakes up computers on LAN.
+#
+#  Copyright 2012 Lemar Carthens <lemar.carthens1@gmail.com>
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#  
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#  
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+#  MA 02110-1301, USA.
+#  
+
+#  Version 2 - SQLite Support
+#       
+#  Resources from: 
+#  http://www.sqlite.org/
+#  http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
+#  http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
+#  http://ubuntuforums.org/showthread.php?t=1656571 - slightly modified nmap 
+#  parser by Crusty Old Fart.
+
 CONFIG_FILE=".wakelan.conf"
-# DB Variables
-DB_FILE="wakelan.db"
-TABLE_NAME="client"
+
+# Programs
+SUDO="/usr/bin/sudo"
+NMAP="/usr/bin/nmap -n"
+ARPSCAN="/usr/bin/arp-scan"
+NBTSCAN="/usr/bin/nbtscan"
+WAKEONLAN="/usr/bin/wakeonlan"
+
+# Declare the program_info and sql_func as associative arrays
+# This prevents a 'bad array subscript' error.
+declare -A prog_info
+declare -A sql_func
+declare -A scan_opt
+
+# Trap TERM, HUP, and INT signals and properly exit
+trap "signal_exit TERM" TERM HUP
+trap "signal_exit INT"  INT
+
+# Associative arrays allow the string to be called easily and descriptively.
+# ex. program_info VERSION
+ 
+program_info()
+{
+    prog_info[PROGNAME]=$(basename $0)
+    prog_info[VERSION]="2.1.1"
+    prog_info[VER_INFO]="SQL Func Test"    
+    
+    echo "${prog_info["$1"]}"
+}
+
+load_sql()
+{   
+    # SQL Program
+    sql_func[DB_TYPE]="sqlite3" 
+    
+    # SQL Database Name
+    sql_func[DB_NAME]="wakelan.db"
+    
+    # SQL Table Names
+    sql_func[TABLE_NAME]="client"
+    sql_func[TEMP_TABLE_NAME]="temp_${sql_func[TABLE_NAME]}"
+    sql_func[ARPSCAN_TEMP_TABLE_NAME]="arpscan_temp_${sql_func[TABLE_NAME]}"
+    sql_func[NBTSCAN_TEMP_TABLE_NAME]="nbtscan_temp_${sql_func[TABLE_NAME]}"
+ 
+    
+    # Table Creation SQL
+    sql_func[CREATE_MAIN_TABLE]="CREATE TABLE ${sql_func[TABLE_NAME]} (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,MacAddress) ON CONFLICT REPLACE);"
+    sql_func[CREATE_TEMP_TABLE]="CREATE TABLE ${sql_func[TEMP_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"
+    sql_func[CREATE_ARPSCAN_TEMP_TABLE]="CREATE TABLE ${sql_func[ARPSCAN_TEMP_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"
+    sql_func[CREATE_NBTSCAN_TEMP_TABLE]="CREATE TABLE ${sql_func[NBTSCAN_TEMP_TABLE_NAME]} (IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE);"    
+
+    
+    # SQL for getting rid of duplicate values. 
+    # It Deletes every Value from the arpscan_temp_client 
+    # table where the MAC address corresponds to the value 
+    # in the nbtscan_temp_client table. I made it this way 
+    # because nbtscan will give you a hostname, while
+    # arpscan dosent.
+    sql_func[DROP_DUPLICATES]="DELETE FROM ${sql_func[ARPSCAN_TEMP_TABLE_NAME]} WHERE MacAddress IN (SELECT MacAddress FROM ${sql_func[NBTSCAN_TEMP_TABLE_NAME]});"
+    
+    # SQL to Import into final table for sorting
+    sql_func[IMPORT_ARPSCAN_TEMP]="INSERT INTO ${sql_func[TEMP_TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT IpAddress,Hostname,MacAddress FROM ${sql_func[ARPSCAN_TEMP_TABLE_NAME]};"
+    sql_func[IMPORT_NBTSCAN_TEMP]="INSERT INTO ${sql_func[TEMP_TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT IpAddress,Hostname,MacAddress FROM ${sql_func[NBTSCAN_TEMP_TABLE_NAME]};"
+    
+    
+    # SQL for importing values
+    sql_func[IMPORT_DISTINCT_SCAN_DATA]="INSERT INTO ${sql_func[TABLE_NAME]} (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[TEMP_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
+    
+    # SQL for showing unique values
+    sql_func[SHOW_DISTINCT_SCAN_DATA]="SELECT DISTINCT IpAddress,Hostname,MacAddress FROM ${sql_func[TEMP_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM ${sql_func[TABLE_NAME]});"
+    
+    # SQL for Dropping Tables
+    sql_func[DROP_TEMP_TABLE]="DROP TABLE IF EXISTS ${sql_func[TEMP_TABLE_NAME]};"
+    sql_func[DROP_TEMP_ARPSCAN_TABLE]="DROP TABLE IF EXISTS ${sql_func[ARPSCAN_TEMP_TABLE_NAME]};"
+    sql_func[DROP_TEMP_NBTSCAN_TABLE]="DROP TABLE IF EXISTS ${sql_func[NBTSCAN_TEMP_TABLE_NAME]};"
+    
+    # SQL for Querying
+    sql_func[SHOW_ALL]="SELECT * FROM ${sql_func[TABLE_NAME]};"
+    sql_func[SEARCH_DB_SIMILAR]="SELECT Hostname,IpAddress,MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname LIKE '$STRING%';"
+    sql_func[SEARCH_DB_EXACT]="SELECT Hostname,IpAddress,MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
+    sql_func[SELECT_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]} WHERE Hostname='$STRING';"
+    sql_func[SELECT_ALL_MAC_ADDR]="SELECT MacAddress FROM ${sql_func[TABLE_NAME]};"
+    sql_func[COUNT_TABLE_ROWS]="SELECT COUNT (*) FROM ${sql_func[TABLE_NAME]};"
+    sql_func[COUNT_TEMP_TABLE_ROWS]="SELECT DISTINCT COUNT (*) FROM ${sql_func[TEMP_TABLE_NAME]} WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress from ${sql_func[TABLE_NAME]});"
+
+    echo "${sql_func["$1"]}"
+}
+
+create_temp_tables()
+{
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql CREATE_TEMP_TABLE)"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql CREATE_ARPSCAN_TEMP_TABLE)"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql CREATE_NBTSCAN_TEMP_TABLE)"
+}
+
+drop_duplicates_import()
+{
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_DUPLICATES)"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql IMPORT_NBTSCAN_TEMP)"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql IMPORT_ARPSCAN_TEMP)"
+}
+
+scanner_nbtscan()
+{
+    make_tmp
+    $NBTSCAN -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d,\
+    >> $TEMP_FILE
+    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql NBTSCAN_TEMP_TABLE_NAME)\
+    | $(load_sql DB_TYPE) $(load_sql DB_NAME)
+    clean_up
+    
+}
+
+scanner_arpscan()
+{
+    make_tmp
+    $SUDO $ARPSCAN $LAN | sed -e '/./!d' -e '1,2d' -e 'N;$!P;$!D;$d' | sed 's/\t/,ARP-SCAN,/g' | cut -f 1,2,3 -d,\
+    >> $TEMP_FILE
+    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql ARPSCAN_TEMP_TABLE_NAME)\
+    | $(load_sql DB_TYPE) $(load_sql DB_NAME)
+    clean_up
+}
+
+scanner_nmap() # This takes a while. I dont think it will survive the cut
+{
+    make_tmp
+    $SUDO $NMAP $LAN >> $TEMP_FILE
+    if [ $? -eq 0 ]; then
+        declare -a nmap_array=($(
+        grep -e report -e MAC "$TEMP_FILE" | \
+        sed -e '{
+            s/Nmap scan report for //g
+            s/MAC Address: //g
+            s/ (.\+//g
+        }'
+     ))    
+        clean_up
+        
+        make_tmp
+        nmap_array_len=${#nmap_array[@]}
+        echo -n > "$TEMP_FILE"
+        for (( i = 0; i <= $nmap_array_len; i++ )); do
+            while (( $(echo ${nmap_array[$i]} | grep -c '[0-9A-F]\+:') < 1 )); do
+                (( i++ ))
+            done
+            echo ${nmap_array[(( $i - 1 ))]}',NMAP-SCAN,'${nmap_array[$i]}
+            (( i++ ))
+        done
+    fi
+    less $TEMP_FILE
+    clean_up
+}
 
 config_file()
 {
     cat <<- _EOF_
+<<<<<<< HEAD
 # Configuration file for the WakeLAN Script
 # Values are double quoted, and leaving a 
 # value blank is not recommended.
+=======
+# Configuration file for the WakeLAN script.
+# Values are double quoted, and leaving a value blank 
+# is not recommended.
+>>>>>>> sqlfunc
 
-# Enter your network information here with CIDR
+# Enter your network information here (with CIDR)
 # (ex. 192.168.1.0/24)
 LAN=
 
 # DB Options - this controls how data is displayed
 HEADER_ENABLE=".headers on"
 TABLE_MODE=".mode column"
-TABLE_WIDTH=".width 16, 20, 20"
+TABLE_WIDTH=".width 16, 18, 18, 18"
 _EOF_
 }
 
@@ -37,55 +212,75 @@ config_settings()
         . $CONFIG_FILE
     else
         echo "Configuration Missing!"
-	echo "Creating new config file"
+        echo "Creating new config file"
         config_file >> $CONFIG_FILE
-	echo "Please open $CONFIG_FILE and add Network Info."
-	echo "then re-run"
+        echo "Please open $CONFIG_FILE and add Network Info."
+        echo "then re-run"
 	exit
     fi
 }
 
+config_load()
+{
+    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH"
+}
+
+import_load()
+{
+    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql SCANNED_TABLE_NAME)
+}
+
 do_scan_import() # uses nbtscan (Best Option so far)
 {
-    check_db # Starts first to see if database exists. In Short, this MUST START FIRST!!
-    make_tmp
-    local TIMESTAMP=$(date +%m%d%y_%H%M%S)
-    SCANNED_TABLE_NAME="client_$TIMESTAMP"
-    local STRUCTURE="CREATE TABLE $SCANNED_TABLE_NAME (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
-    echo "Now scanning the $LAN Network. Please be patient."
-    nbtscan -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d, >> $TEMP_FILE
-    $SQLITE $DB_FILE "$STRUCTURE"
-    local counter=$(wc -l $TEMP_FILE | awk '{print $1-1}') #awk can do math, so the '-1' helps correct for the array
-    ip_array=(`cat $TEMP_FILE | cut -f 1 -d,`)
-    host_array=(`cat $TEMP_FILE | cut -f 2 -d,`)
-    mac_array=(`cat $TEMP_FILE | cut -f 3 -d,`)
-    until [ $counter -eq -1 ]; do # Items in an array are counted from 0 instead of 1, so this corrects for it.
-        echo "INSERT INTO $SCANNED_TABLE_NAME (IpAddress,Hostname,MacAddress) VALUES ('${ip_array[$counter]}','${host_array[$counter]}','${mac_array[$counter]}');"\
-        | $SQLITE $DB_FILE
-        let counter=counter-1
-    done
-    clean_up
-    
+    config_settings
+    check_db # Starts first to see if db exists.
+    create_temp_tables
+        scanner_arpscan
+        scanner_nbtscan
+        drop_duplicates_import 
     make_tmp
     # Sets Display settings, and show what will be imported.
-    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH"\
-     >> $TEMP_FILE
-    echo "SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
-     >> $TEMP_FILE 
-    echo "Displaying records to be imported."
-    $SQLITE $DB_FILE < $TEMP_FILE
-    echo -e "Import? [y/n]---> \c"
-    read selection
-    case $selection in
-        [yY] )  echo "INSERT INTO $TABLE_NAME (IpAddress,Hostname,MacAddress) SELECT DISTINCT IpAddress,Hostname,MacAddress FROM $SCANNED_TABLE_NAME WHERE MacAddress NOT IN (SELECT DISTINCT MacAddress FROM $TABLE_NAME);"\
-                | $SQLITE $DB_FILE && echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"\
-                | $SQLITE $DB_FILE ;;
-        [nN] ) echo "DROP TABLE IF EXISTS $SCANNED_TABLE_NAME;"
-            =exit ;;
-        *)	   echo "Invalid entry. Abort" # Fix this up a bit
-            exit ;; 
-    esac
-    clean_up
+    config_load >> $TEMP_FILE
+    load_sql SHOW_DISTINCT_SCAN_DATA >> $TEMP_FILE 
+    local num=$(load_sql COUNT_TEMP_TABLE_ROWS | $(load_sql DB_TYPE) $(load_sql DB_NAME))
+    
+    if [ $num -eq 0 ]; then
+        echo -e "No records to import. Everything is up to date."
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_TABLE)"
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_ARPSCAN_TABLE)" 
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_NBTSCAN_TABLE)"
+        clean_up
+        exit 0
+    else
+        echo -e "Displaying $num records to be imported.\n"
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) < $TEMP_FILE
+        echo -e "Import? [y/n]---> \c"
+        read selection
+        case $selection in
+            [yY] )  $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql IMPORT_DISTINCT_SCAN_DATA)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_TABLE)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_ARPSCAN_TABLE)" 
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_NBTSCAN_TABLE)"
+                    echo -e "Success!"
+                    clean_up
+                    exit 
+                    ;;
+            [nN] )  $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_TABLE)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_ARPSCAN_TABLE)" 
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_NBTSCAN_TABLE)"
+                    echo -e "Import Aborted"
+                    clean_up
+                    exit 
+                    ;;
+            *)	    echo "Invalid entry. Abort" # Fix this up a bit
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_TABLE)"
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_ARPSCAN_TABLE)" 
+                    $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql DROP_TEMP_NBTSCAN_TABLE)"
+                    clean_up
+                    exit 
+                    ;; 
+        esac
+    fi
 }
 
 graceful_exit()
@@ -97,12 +292,16 @@ graceful_exit()
 signal_exit()
 {
     case $1 in
-	INT)	echo "$PROGNAME: Program aborted by user" >&2
-		clean_up ; exit ;;
-	TERM)	echo "$PROGNAME: Program terminated" >&2
-		clean_up ; exit ;;
-	*)	error_exit "$PROGNAME: Terminating on unknown signal"
-        ;;
+        INT)  echo "$PROGNAME: Program aborted by user" >&2
+              clean_up 
+              exit 
+              ;;
+        TERM) echo "$PROGNAME: Program terminated" >&2
+              clean_up 
+              exit 
+              ;;
+        *)	  error_exit "$PROGNAME: Terminating on unknown signal"
+              ;;
     esac
 }
 
@@ -121,26 +320,25 @@ error_exit()
 make_tmp()
 {
     if [ -d ~/tmp ]; then
-	TEMP_DIR=~/tmp
+        TEMP_DIR=~/tmp
     else
-	TEMP_DIR=/tmp
+        TEMP_DIR=/tmp
     fi
-    TEMP_FILE=$(mktemp -q "${TEMP_DIR}/${PROGNAME}.$$.XXXXXX")
+    TEMP_FILE=$(mktemp -q "${TEMP_DIR}/${PROGNAME}.$$.XXXX")
     if [ "$TEMP_FILE" = "" ]; then
-	echo "cannot create temp file!"
-    exit 1
+        echo "cannot create temp file!"
+        exit 1
     fi
 }
 
 check_db() 
 {
-    if [[ -f $DB_FILE ]]; then
+    if [[ -f $(load_sql DB_NAME) ]]; then
         sleep 0s
     else
-        echo "Creating new Database: $DB_FILE"
-        local STRUCTURE="CREATE TABLE $TABLE_NAME (id INTEGER PRIMARY KEY,IpAddress TEXT,Hostname TEXT COLLATE NOCASE, MacAddress TEXT COLLATE NOCASE,UNIQUE(id,Hostname,MacAddress) ON CONFLICT REPLACE );"
-        cat /dev/null > $DB_FILE
-        $SQLITE $DB_FILE "$STRUCTURE"
+        echo "Creating new Database: $(load_sql DB_NAME)"
+        cat /dev/null > $(load_sql DB_NAME)
+        $(load_sql DB_TYPE) $(load_sql DB_NAME) "$(load_sql CREATE_MAIN_TABLE)"
     fi
 }
 
@@ -149,32 +347,55 @@ search_db()
     # Create temp file to hold config and query
     make_tmp
     # copy config into temp file
-    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE
+    config_load >> $TEMP_FILE
     echo -e "Enter Search Term ---> \c"
     read STRING
     # Copy created query into temp file as well
-    echo "SELECT Hostname,IpAddress,MacAddress FROM\
-   $TABLE_NAME WHERE Hostname LIKE '$STRING%';"\
-    >> $TEMP_FILE
-    $SQLITE $DB_FILE < $TEMP_FILE
+    load_sql SEARCH_DB_SIMILAR >> $TEMP_FILE
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) < $TEMP_FILE
     clean_up
 }
 
-do_start_wakeup()
+show_db()
 {
     make_tmp
-    echo -e "$HEADER_ENABLE\n$TABLE_MODE\n$TABLE_WIDTH" >> $TEMP_FILE
+    config_settings
+    config_load >> $TEMP_FILE
+    load_sql SHOW_ALL >> $TEMP_FILE
+    echo -e "Loading all records. \n"
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) < $TEMP_FILE | less
+    clean_up
+}
+
+do_wakeup_one()
+{
+    make_tmp
+    config_load >> $TEMP_FILE
     echo -e "Enter Name of PC to wakeup ---> \c"
     read STRING
-    echo "SELECT Hostname,IpAddress,MacAddress FROM $TABLE_NAME WHERE Hostname='$STRING';" >> $TEMP_FILE
-    $SQLITE $DB_FILE < $TEMP_FILE
+    load_sql SEARCH_DB_EXACT >> $TEMP_FILE
+    $(load_sql DB_TYPE) $(load_sql DB_NAME) < $TEMP_FILE
     echo -e "Wakeup? [y/n] ---> \c"
     read selection
-    local WAKEMAC="SELECT MacAddress FROM $TABLE_NAME WHERE Hostname='$STRING';"
-    local MAC_ADDR=$(echo $WAKEMAC | $SQLITE $DB_FILE)
+    local MAC_ADDR=$(load_sql SELECT_MAC_ADDR | $(load_sql DB_TYPE) $(load_sql DB_NAME))
     case $selection in
         [yY] ) wakeonlan $MAC_ADDR  ;;
         [nN] ) echo "Exiting" ; exit ;;
+        * )    echo "invalid entry" ; exit ;;
+    esac
+    clean_up
+}
+
+do_wakeup_all()
+{
+   echo -e "WARNING: This will attempt to start all\
+ $(load_sql COUNT_TABLE_ROWS | $(load_sql DB_TYPE) $(load_sql DB_NAME))\
+ entries currently in the database.\nAre you sure?[y/n]---> \c"
+    read selection
+    local MAC_ADDR=$(load_sql SELECT_ALL_MAC_ADDR | $(load_sql DB_TYPE) $(load_sql DB_NAME))
+    case $selection in
+        [yY] ) wakeonlan $MAC_ADDR  ;;
+        [nN] ) exit ;;
         * )    echo "invalid entry" ; exit ;;
     esac
     clean_up
@@ -184,7 +405,7 @@ package_check()
 {  
     REQ_PKGS=("wakeonlan" "nbtscan" "sqlite3")
     UNMET_PKGS=()
-    OPT_PKGS=()
+    OPT_PKGS=("nmap")
     UNMET_OPT_PKGS=()
 
     for PACKAGE in "${REQ_PKGS[@]}" ; do
@@ -222,19 +443,4 @@ package_check()
         exit 32
     fi
 }
-
-# Results of the 'time' command on do_scan_import (on new db):
-# real	0m9.362s
-# user	0m0.028s
-# sys	0m0.088s
-
-# Results of the 'time' command on do_scan_import (on existing db):
-# real	0m8.471s
-# user	0m0.044s
-# sys	0m0.060s
-set -x
-config_settings
-do_scan_import
-search_db
-do_start_wakeup
-
+show_db
