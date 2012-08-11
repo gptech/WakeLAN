@@ -88,10 +88,32 @@ load_sql()
     echo "${sql_func["$1"]}"
 }
 
+scanner_nbtscan()
+{
+    make_tmp
+    $NBTSCAN -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d,\
+    >> $TEMP_FILE
+    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql SCANNED_TABLE_NAME)\ # MUST BE CHANGED
+    | $(load_sql DB_TYPE) $(load_sql DB_NAME)
+    clean_up
+    
+}
+
+scanner_arpscan()
+{
+    make_tmp
+    $SUDO $ARPSCAN $LAN | sed -e '/./!d' -e '1,2d' -e 'N;$!P;$!D;$d' | sed 's/\t/,ARP-SCAN,/g' | cut -f 1,2,3 -d,\
+    >> $TEMP_FILE
+    echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql SCANNED_TABLE_NAME)\ # MUST BE CHANGED
+    | $(load_sql DB_TYPE) $(load_sql DB_NAME)
+    clean_up
+}
+
 scanner()
 {
-    scan_opt[NBTSCAN]=$($SUDO $NBTSCAN -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d,)
+    scan_opt[NBTSCAN]=$($NBTSCAN -s, $LAN 2>/dev/null | sed -e 's/ //g' | cut -f 1,2,5 -d,)
     scan_opt[ARPSCAN]=$($SUDO $ARPSCAN $LAN | sed -e '/./!d' -e '1,2d' -e 'N;$!P;$!D;$d' | sed 's/\t/,ARP-SCAN,/g' | cut -f 1,2,3 -d,)
+    
     echo "${scan_opt["$1"]}"
 }
 
@@ -366,5 +388,5 @@ package_check()
         exit 32
     fi
 }
-
-do_scan_import
+set -x
+check_db
