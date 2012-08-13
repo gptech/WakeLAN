@@ -23,9 +23,6 @@
 #  http://www.sqlite.org/
 #  http://quickies.andreaolivato.net/post/133473114/using-sqlite3-in-bash
 #  http://stackoverflow.com/questions/2049109/how-to-import-sql-into-sqlite3
-#  http://ubuntuforums.org/showthread.php?t=1656571 - slightly modified nmap 
-#  parser by Crusty Old Fart.
-
 CONFIG_FILE=".wakelan.conf"
 
 # Programs
@@ -39,11 +36,6 @@ WAKEONLAN="/usr/bin/wakeonlan"
 # This prevents a 'bad array subscript' error.
 declare -A prog_info
 declare -A sql_func
-declare -A scan_opt
-
-# Trap TERM, HUP, and INT signals and properly exit
-trap "signal_exit TERM" TERM HUP
-trap "signal_exit INT"  INT
 
 program_info()
 {
@@ -129,7 +121,6 @@ scanner_nbtscan()
     echo -e '.separator ,'"\n"'.import' "$TEMP_FILE" $(load_sql NBTSCAN_TEMP_TABLE_NAME)\
     | $(load_sql DB_TYPE) $(load_sql DB_NAME)
     clean_up
-    
 }
 
 scanner_arpscan()
@@ -347,9 +338,9 @@ do_wakeup_all()
 
 package_check() 
 {  
-    REQ_PKGS=("wakeonlan" "nbtscan" "sqlite3")
+    REQ_PKGS=("wakeonlan" "nbtscan" "arp-scan" "sqlite3")
     UNMET_PKGS=()
-    OPT_PKGS=("nmap")
+    OPT_PKGS=()
     UNMET_OPT_PKGS=()
 
     for PACKAGE in "${REQ_PKGS[@]}" ; do
@@ -360,7 +351,6 @@ package_check()
             UNMET_PKGS=("${UNMET_PKGS[@]}" "$PACKAGE")
         fi
     done
-
     for PACKAGE in "${OPT_PKGS[@]}" ; do
         command -v $PACKAGE 1>/dev/null
         if [ $? = "0" ] ; then
@@ -369,7 +359,7 @@ package_check()
             UNMET_OPT_PKGS=("${UNMET_OPT_PKGS[@]}" "$PACKAGE")
         fi
     done
-
+    
     if [ "${#UNMET_OPT_PKGS[@]}" = "0" ] ; then
         sleep 0s
     else
@@ -377,7 +367,6 @@ package_check()
             echo "$i is missing. (Optional)"
         done
     fi
-
     if [ "${#UNMET_PKGS[@]}" = "0" ] ; then
         sleep 0s
     else
@@ -387,4 +376,17 @@ package_check()
         exit 32
     fi
 }
-do_scan_import
+
+##### Initialization And Setup #####
+
+# Set file creation mask so that all files are created with 600 permissions.
+umask 066
+
+# Trap TERM, HUP, and INT signals and properly exit
+trap "signal_exit TERM" TERM HUP
+trap "signal_exit INT"  INT
+
+# Check for required packages
+package_check
+
+##### Command Line Processing #####
