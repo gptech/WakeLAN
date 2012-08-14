@@ -384,19 +384,19 @@ helptext()
 
 	cat <<- -EOF-
 
-	${PROGNAME} ver. ${VERSION}
+	$(program_info PROGNAME) ver. $(program_info VERSION)
 
 	$(usage)
 
 	Options:
 
-    -h, --help  Display this help message and exit.
-    -b          Attempts to wake all computers with an entry.
-    -f          Search the DB for a specific computer.
-    -s          Scan for entries to add to the DB. Uses nbtscan
-                and arp-scan (requires sudo privleges).
-    -e          Shows all entries in the DB
-    -w          Wake one computer listed in the DB
+    -h  Display this help message and exit.
+    -b  Attempts to wake all computers with an entry.
+    -f  Search the DB for a specific computer.
+    -s  Scan for entries to add to the DB. Uses nbtscan
+        and arp-scan (requires sudo privleges).
+    -e  Shows all entries in the DB
+    -w  Wake one computer listed in the DB
 	
 -EOF-
 }
@@ -433,6 +433,8 @@ while getopts ":hbf:sew" opt; do
         s ) do_scan_import ;;
         e ) show_db ;;
         w ) do_wakeup_one ;;
-        * ) usage ;;
+        * ) usage
+            exit 0 
+            ;;
 	esac
 done
