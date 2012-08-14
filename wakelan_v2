@@ -271,16 +271,17 @@ check_db()
 
 search_db()
 {
+    local STRING="$1" 
     # Create temp file to hold config and query
     make_tmp
     # copy config into temp file
     config_load >> $TEMP_FILE
-    echo -e "Enter Search Term ---> \c"
-    read STRING
     # Copy created query into temp file as well
     load_sql SEARCH_DB_SIMILAR >> $TEMP_FILE
+    echo -e "\n"
     $(load_sql DB_TYPE) $(load_sql DB_NAME) < $TEMP_FILE
-    clean_up
+    echo -e "\n"
+    graceful_exit
 }
 
 show_db()
@@ -377,6 +378,34 @@ package_check()
     fi
 }
 
+helptext()
+{
+	local tab=$(echo -en "\t\t")
+
+	cat <<- -EOF-
+
+	${PROGNAME} ver. ${VERSION}
+
+	$(usage)
+
+	Options:
+
+    -h, --help  Display this help message and exit.
+    -b          Attempts to wake all computers with an entry.
+    -f          Search the DB for a specific computer.
+    -s          Scan for entries to add to the DB. Uses nbtscan
+                and arp-scan (requires sudo privleges).
+    -e          Shows all entries in the DB
+    -w          Wake one computer listed in the DB
+	
+-EOF-
+}
+
+usage()
+{
+	echo "Usage: ${PROGNAME} [-h, --help] [-b] [-f hostname] [-s] [-e] [-w]"
+}
+
 ##### Initialization And Setup #####
 
 # Set file creation mask so that all files are created with 600 permissions.
@@ -388,5 +417,18 @@ trap "signal_exit INT"  INT
 
 # Check for required packages
 package_check
+# Load conf file
+config_settings
 
 ##### Command Line Processing #####
+while getopts ":hbf:sew" opt; do
+	case $opt in
+		b ) do_wakeup_all
+            graceful_exit
+            ;;
+        f ) search_db "$OPTARG" ;;
+        s ) do_scan_import ;;
+        e ) show_db ;;
+        w ) do_wakeup_one ;;
+	esac
+done
