@@ -423,12 +423,16 @@ config_settings
 ##### Command Line Processing #####
 while getopts ":hbf:sew" opt; do
 	case $opt in
-		b ) do_wakeup_all
+		h ) helptext
+            graceful_exit
+            ;;
+        b ) do_wakeup_all
             graceful_exit
             ;;
         f ) search_db "$OPTARG" ;;
         s ) do_scan_import ;;
         e ) show_db ;;
         w ) do_wakeup_one ;;
+        * ) usage ;;
 	esac
 done
