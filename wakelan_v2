@@ -172,6 +172,7 @@ config_load()
 
 do_scan_import()
 {
+    echo "Scanning the $LAN network. Please be patient."
     config_settings           # Sources the config file.
     check_db                  # Starts first to see if db exists.
     create_temp_tables        # Creates Temp tables.
@@ -403,7 +404,7 @@ helptext()
 
 usage()
 {
-	echo "Usage: ${PROGNAME} [-h, --help] [-b] [-f hostname] [-s] [-e] [-w]"
+	echo "Usage: ${PROGNAME} [-h] [-b] [-f hostname] [-s] [-e] [-w]"
 }
 
 ##### Initialization And Setup #####
@@ -438,3 +439,6 @@ while getopts ":hbf:sew" opt; do
             ;;
 	esac
 done
+
+# Show helptext if no option is selected
+helptext
